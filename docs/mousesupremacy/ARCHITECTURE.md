@@ -6,6 +6,8 @@ Build the first slice inside the Android host on standard Android input APIs. Th
 
 Reuse PokeDaisy touchscreen, keyboard, controller, and emulator-input infrastructure, along with the upstream module source lists and `GameSession` lifecycle where they fit. Keep `MotionEvent`, Compose layout and JNI types out of shared interaction decisions. Physical Android devices and other Android emulators use the same shared gameplay interaction systems through the Android baseline. Add an emulator-specific adapter only when a demonstrated compatibility difference requires one. Qualify each environment independently, including stock Android mouse and touch controls before broader production compatibility. Evaluate a fallback if an essential WSA capability materially fails or the host becomes unavailable. Native SDL still requires its own parity review. [Platform decision](DECISIONS_AND_RISKS.md) · [Platform input contract](specifications/01-platform-input.md)
 
+Keep MouseSupremacy modular around stable input, observation, projection and execution seams. Reuse working upstream facilities and minimize dependence on private implementation details. This helps the personal fork absorb controlled upstream updates. Use automated regressions to detect incompatibility and base architecture choices on approved fork behavior, usability and maintenance effort. Upstream contribution is optional. [Maintenance policy](DEVELOPMENT.md#fork-maintenance)
+
 | Boundary | Responsibilities and likely integration |
 | --- | --- |
 | Platform pointer | Standard Android mouse and opt-in direct touch use the Android baseline. A separate WSA adapter handles verified translation. Normalize positions and generation, button/contact edges, wheel where delivered, focus and cancellation. |

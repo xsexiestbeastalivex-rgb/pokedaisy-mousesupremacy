@@ -51,6 +51,14 @@ Before any retained development install or regular distribution, have the owner 
 
 Before distribution, audit exported activities, intent links including `pokedaisy://coop`, provider authorities including `${applicationId}.updates`, package-sensitive JNI and scripts, package data roots, import/export, updater host and release settings. Verify the production manifest and APK omit any diagnostic control surface. Preserve credits, [NOTICE](../../NOTICE), [LICENSE](../../LICENSE) and bundled third-party notices. Verify the corresponding exact source, build instructions and pinned submodule/build inputs remain obtainable. Record the verification and owner approval before retained or public distribution.
 
+## Fork maintenance
+
+Maintain the owner's personal PokeDaisy fork as a complete product. Prioritize approved functionality, usability and maintainability. Compatibility with future upstream updates is a high priority. Keep MouseSupremacy modular, reuse upstream functionality where practical, and limit coupling to unstable upstream internals. Retain Android-native input APIs, WSA-first runtime verification and isolated platform adapters. [Architecture](ARCHITECTURE.md)
+
+Preserve upstream Git history and use the controlled sync procedure below. For a sync, pin the previous fork baseline and incoming upstream revision, review the changed seams and gitlinks, and run automated upstream and MouseSupremacy regressions. Include mode-off and existing input behavior where affected, plus the approved fork capabilities touched by the incoming changes. Use exact source and build evidence to localize failures before accepting the sync.
+
+Consider upstream contribution separately when useful and practical. Keep it optional. Choose functionality and engineering effort for the owner's fork based on its requirements, usability, compatibility and maintenance costs. Any upstream communication or submission requires the owner's authorization.
+
 ## Git and reviews
 
 Use fork `main` as the reviewed stable branch and a read-only `upstream` remote. Track the upstream tag, commit and any relevant gitlink changes in project status. For sync, start an isolated fork integration branch from current `main`, fetch the new upstream tag and commit, review its changes, merge upstream into the sync branch with history intact and resolve conflicts in focused commits. Run baseline and applicable MouseSupremacy tests, review regressions, then request approval through a fork PR. Preserve dated upstream provenance and both sides of relevant refactor decisions. Avoid force-push and never send branches or PRs upstream without approval.

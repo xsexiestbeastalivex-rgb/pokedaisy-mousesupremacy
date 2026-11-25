@@ -2,6 +2,8 @@
 
 Let players target the original Pokémon interface with a mouse while retaining the ROM's behavior, visuals and animation. The Android app on Windows 11 through WSA is the first target. An exact English FireRed revision is the proposed first battle reference. Keyboard, controller, PokeDaisy companion, HUD, zoom and expansion remain part of the experience.
 
+The primary objective is the owner's fully functional, independently maintained personal fork. Upstream compatibility helps sustain it through controlled updates. Sharing a useful change upstream is optional. [Fork maintenance](DEVELOPMENT.md#fork-maintenance)
+
 Based on PokeDaisy by Lidor Itzhari - https://github.com/lidor30/pokedaisy
 
 | Document | Responsibility |
