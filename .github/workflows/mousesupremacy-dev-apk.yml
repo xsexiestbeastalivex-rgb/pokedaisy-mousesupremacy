@@ -50,7 +50,15 @@ jobs:
           validate-wrappers: false
 
       - name: Build the isolated app with x86_64 and arm64
-        run: ./gradlew :app:assembleDev -Ppokedaisy.x86_64=true --stacktrace
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_SHA"
+          mkdir -p app/src/dev/assets
+          printf '%s\n' "$EXPECTED_SOURCE_SHA" > app/src/dev/assets/source-commit.txt
+          ./gradlew :app:testDevUnitTest --tests '*ControllerTriggersTest' :app:assembleDev \
+            -Pquick -Ppokedaisy.x86_64=true --stacktrace
 
       - name: Verify package, native libraries and debug signature
         env:
@@ -62,6 +70,7 @@ jobs:
           package_id="$("${tools}/aapt" dump badging "$apk" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")"
           test "$package_id" = com.pokedaisy.app.dev
 
+          test "$(unzip -p "$apk" assets/source-commit.txt)" = "$(git rev-parse HEAD)"
           entries="$(unzip -Z1 "$apk")"
           for abi in x86_64 arm64-v8a; do
             grep -Fxq "lib/${abi}/libpokedaisy.so" <<< "$entries"
@@ -80,6 +89,16 @@ jobs:
             git submodule status --recursive
           } > dist/build-info.txt
           (cd dist && sha256sum pokedaisy-dev.apk > SHA256SUMS)
+          {
+            echo '### Verified development APK'
+            sed -n '1,4p' dist/build-info.txt
+            grep -F 'certificate SHA-256 digest:' dist/build-info.txt
+            cat dist/SHA256SUMS
+          } >> "$GITHUB_STEP_SUMMARY"
+          apk_sha="$(awk '{print $1}' dist/SHA256SUMS)"
+          cert_sha="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' dist/build-info.txt)"
+          printf '::notice title=Verified development APK::Source %s | Package %s | ABIs %s | APK SHA-256 %s | Signer SHA-256 %s\n' \
+            "$(git rev-parse HEAD)" "$package_id" "$abis" "$apk_sha" "$cert_sha"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

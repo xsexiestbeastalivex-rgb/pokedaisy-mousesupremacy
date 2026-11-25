@@ -1,6 +1,11 @@
 package com.pokedaisy.mousesupremacy.probe;
 
-import static com.pokedaisy.mousesupremacy.probe.PointerState.OUTSIDE;
+import com.pokedaisy.mousesupremacy.pointer.DeviceAliases;
+import com.pokedaisy.mousesupremacy.pointer.PointerNormalizer;
+import com.pokedaisy.mousesupremacy.pointer.PointerState;
+import com.pokedaisy.mousesupremacy.pointer.WsaPointer;
+
+import static com.pokedaisy.mousesupremacy.pointer.PointerState.OUTSIDE;
 import static com.pokedaisy.mousesupremacy.probe.Trace.fields;
 
 import android.app.Activity;
@@ -37,7 +42,7 @@ public final class ProbeActivity extends Activity implements InputManager.InputD
     private static final int MAX_DEVICES = 64;
     private final Trace trace = new Trace(Trace.CAPACITY);
     private final DeviceAliases deviceAliases = new DeviceAliases(MAX_DEVICES);
-    private final ProbeInput input = new ProbeInput(MAX_DEVICES);
+    private final PointerNormalizer input = new PointerNormalizer(MAX_DEVICES);
     private final Rect aBounds = new Rect();
     private final Rect bBounds = new Rect();
     private final Rect nextA = new Rect();
@@ -265,7 +270,7 @@ public final class ProbeActivity extends Activity implements InputManager.InputD
             result = decision.result();
             interpretation = decision.interpretation();
             if (decision.displaced() != null) {
-                recordCancellation(deviceAliases.at(decision.displacedSlot()), decision.displaced(), ProbeInput.WSA);
+                recordCancellation(deviceAliases.at(decision.displacedSlot()), decision.displaced(), PointerNormalizer.WSA);
                 active = OUTSIDE;
                 heldButtons = 0;
                 scheduleRefresh();
@@ -418,9 +423,9 @@ public final class ProbeActivity extends Activity implements InputManager.InputD
     }
 
     private void cancel(DeviceAliases.Device device, String reason, long through) {
-        recordCancellation(device, input.invalidate(device.slot(), through, reason, false), ProbeInput.STANDARD);
+        recordCancellation(device, input.invalidate(device.slot(), through, reason, false), PointerNormalizer.STANDARD);
         if (wsaCompatibility) {
-            recordCancellation(device, input.invalidate(device.slot(), through, reason, true), ProbeInput.WSA);
+            recordCancellation(device, input.invalidate(device.slot(), through, reason, true), PointerNormalizer.WSA);
         }
     }
 

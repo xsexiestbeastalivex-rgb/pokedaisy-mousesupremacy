@@ -22,9 +22,56 @@ The [fork artifact workflow](../../.github/workflows/mousesupremacy-dev-apk.yml)
 
 After the workflow reaches the default branch, dispatch **MouseSupremacy development APK** in Actions using a same-fork branch already pinned to the intended full SHA. Verify its remote head with `git ls-remote --exit-code origin "refs/heads/$build_ref"` (with `$build_ref` set to that branch and `origin` verified as this fork) and keep the branch fixed until the run starts. The GitHub CLI equivalent is `gh workflow run mousesupremacy-dev-apk.yml --repo xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy --ref "$build_ref"`. Select the resulting successful run by workflow and head SHA, then download the artifact named `pokedaisy-dev-apk-<full-sha>` from that run. [GitHub dispatch documentation](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow)
 
-Check the run SHA, artifact name and the `Source` commit in the bundled `build-info.txt` against the intended SHA. A mismatch means the artifact cannot verify the intended source. Verify the ZIP against the Actions digest when available, then verify the APK against `SHA256SUMS`, inspect the package and native ABIs with Build Tools, and verify its signing certificate with `apksigner verify --print-certs`. Record run, artifact, exact SHA, package, ABIs, both digests when available, and signer in the evidence ledger. Preserve the provenance and notices. The archive expires after seven days. When it expires, retain the recorded evidence and rebuild from the reviewed SHA only when the use case requires fresh bytes.
+Check the run SHA, artifact name, the `Source` commit in the bundled `build-info.txt`, and `assets/source-commit.txt` inside the APK against the intended SHA. A mismatch means the artifact cannot verify the intended source. Verify the ZIP against the Actions digest when available, then verify the APK against `SHA256SUMS`, inspect the package and native ABIs with Build Tools, and verify its signing certificate with `apksigner verify --print-certs`. Record run, artifact, exact SHA, package, ABIs, both digests when available, and signer in the evidence ledger. Preserve the provenance and notices. The archive expires after seven days. When it expires, retain the recorded evidence and rebuild from the reviewed SHA only when the use case requires fresh bytes.
 
 Phase 1 must exercise this procedure on the first packaging-relevant change and verify the downloadable artifact's bundled source SHA. The existing job uses pinned submodules and read-only repository permissions. It requires no retained signing, Firebase or upstream credentials.
+
+
+## Phase 1C application pointer checkout
+
+Use the corrected exact-commit [development APK](#exact-commit-development-apks) on an approved disposable WSA installation where the official package is present. Check the archive digest, `build-info.txt`, APK SHA-256, embedded source, x86_64 library and signer before install. Use a fresh disposable dev installation if the CI signer differs. Leave both existing packages and their data alone on a signer conflict.
+
+1. **Identify the installed build.** From the root of this fork, set the local verified APK path and the APK digest recorded from its artifact. Select the exact disposable serial with `adb devices -l`. Run this once while deliberately retaining the older disposable dev install. Expect **Installed dev APK SHA-256 mismatch** and zero launches. On the approved disposable target with the corrected APK installed, repeat the same command. Expect the matching digest and two separate packages with dev `run-as` available. The command reads the installed `base.apk` via `pm path` and hashes it on the selected Android device. An ambiguous path, digest mismatch, unavailable app UID or changed installation stops checkout.
+
+   ```powershell
+   $pdaAdb = 'C:\platform-tools\adb.exe'
+   & $pdaAdb devices -l
+   $pdaTarget = Read-Host 'Exact approved disposable WSA serial'
+   $pdaApk = Read-Host 'Local verified pokedaisy-dev.apk path'
+   $pdaHash = Read-Host 'Verified APK SHA-256 from this artifact'
+   $pdaPackage = 'com.pokedaisy.app.dev'
+   & .\tools\mousesupremacy\Confirm-InstalledDevApk.ps1 -AdbPath $pdaAdb -Serial $pdaTarget -ApkPath $pdaApk -ExpectedSha256 $pdaHash
+   ```
+
+2. **Boot and isolate.** After the positive match, open only the [empty dev library](TESTING.md#rom-free-launch-and-evidence) with the same ADB binary and serial. The launcher should appear and `pidof` should identify the dev process. Then [verify the copied ROM, effective save and backup roots](#pre-launch-save-isolation-gate). Use the deliberate shared-root case without opening or importing that entry, restore the isolated settings, then do a disposable positive save write and check the original-side sentinel stays identical.
+3. **Activate one profile in a fresh dev process.** Close the disposable game cleanly first. Ensure zero pre-existing files named `ms_pointer_wsa`, `ms_pointer_android` or `ms_pointer_touch` in dev `files`. If another trace session owns a marker, use its own cleanup procedure before proceeding. Restart only `com.pokedaisy.app.dev`; use `ms_pointer_wsa` for the qualified WSA translation, `ms_pointer_android` for conventional mouse, or `ms_pointer_touch` for opt-in direct-touch observation. Every ADB command must use the verified `-s` target. In the fresh process, verify one matching `start schema=1 profile=WSA mode=observe-only` row before scoring WSA input.
+
+   ```powershell
+   & $pdaAdb -s $pdaTarget shell am force-stop $pdaPackage
+   if ($LASTEXITCODE) { throw 'Could not restart the disposable dev process' }
+   & $pdaAdb -s $pdaTarget shell run-as $pdaPackage mkdir -p files
+   if ($LASTEXITCODE) { throw 'Could not access dev files' }
+   $pdaMarkers = @('ms_pointer_wsa', 'ms_pointer_android', 'ms_pointer_touch')
+   $pdaFiles = @(& $pdaAdb -s $pdaTarget shell run-as $pdaPackage ls -a files)
+   if ($LASTEXITCODE -or @($pdaFiles | Where-Object { $_.Trim() -cin $pdaMarkers }).Count) { throw 'Existing trace marker or inaccessible dev files' }
+   & $pdaAdb -s $pdaTarget shell run-as $pdaPackage touch files/ms_pointer_wsa
+   if ($LASTEXITCODE) { throw 'Could not activate the WSA profile' }
+   & $pdaAdb -s $pdaTarget shell am start -W -n "$pdaPackage/com.pokedaisy.app.LibraryActivity"
+   if ($LASTEXITCODE) { throw 'Could not open the dev library' }
+   # Open only the verified disposable ROM from the dev library.
+   $pdaPid = (& $pdaAdb -s $pdaTarget shell pidof $pdaPackage | Out-String).Trim()
+   if ($LASTEXITCODE -or $pdaPid -notmatch '^\d+$') { throw 'Dev process unavailable' }
+   $pdaTrace = @(& $pdaAdb -s $pdaTarget logcat -d --pid=$pdaPid -s MsPointer:I)
+   $pdaStarts = @($pdaTrace | Select-String 'start schema=1 profile=')
+   if ($LASTEXITCODE -or $pdaStarts.Count -ne 1 -or $pdaStarts[0] -notmatch 'profile=WSA mode=observe-only') {
+       throw 'WSA profile not confirmed for the fresh dev process'
+   }
+   ```
+
+4. **Score two widths.** Start in ORIGINAL fit or STRETCH with a docked companion and no HUD or controls over the game. Hover and sample the picture and letterbox boundary at each width. Mark a game press, a companion press, a resize or focus interruption, and a fresh successful pair. Hold a pointer press, use a manual controller trigger or direction, then release the old press. Expect one cancellation and zero old `observed-release` records, followed by valid fresh recovery. Repeat briefly with a higher owner or touch pad visible and check normal upstream response. Save the PID-scoped trace and opted-in aligned screenshots without clearing system logs. Draw IDs describe the submitted GL quad. Use aligned screenshots for visible presentation.
+5. **Clean up.** Close the disposable game cleanly even if the trace fails. Remove the marker created for this run using `adb -s <target> shell run-as com.pokedaisy.app.dev rm files/ms_pointer_wsa`, then check the private `files` listing with the same target and verify it is absent. Keep the device serial and raw paths local. The trace expires after 90 seconds or 768 records per game Activity. The [FireRed experiment](test-scenarios/firered-battle.md#phase-1-feasibility-experiment) follows this checkout and requires exact ROM identity, readiness and applied-frame evidence.
+
+A lost conventional terminal can consume the first newer same-stream press while the old route retires. Try a fresh press after that cancellation. A missing buttonless terminal on another alias can withhold the GAME region until a real terminal or lifecycle cleanup. Recovery uses actual events and lifecycle boundaries. Gameplay input remains off.
 
 ## Package, signing and save isolation
 
@@ -73,15 +120,15 @@ Apply this workflow to substantial assignments. For a narrow, low-risk change, u
 2. Map the affected architecture. For complex stateful work, identify authority, identities, invariants, transitions, lifecycle boundaries, ambiguity and failures.
 3. Plan verification before coding. Pin the baseline, reproduce known defects where feasible, choose discriminating methods, and identify proof that needs hardware or the actual application. [Risk-based verification](TESTING.md#risk-based-verification)
 4. Implement the root-cause correction and preserve upstream behavior and compatibility outside the approved change.
-5. Run focused automated checks and applicable hosted compatibility jobs. Exercise negative cases and preserve reproducible failing inputs.
+5. Run focused tests while coding and applicable upstream quick checks at handover. Exercise negative cases and preserve reproducible failing inputs. Use hosted integration and merge checks as applicable. Obtain owner approval for full local suites.
 6. Have a separate internal reviewer where available try to disprove the design and test oracle. Give them the invariants, pinned source and ability to run their own checks. With no separate reviewer, run a structured adversarial self-review from a fresh checkout or separately constructed oracle and disclose the limitation.
 7. Resolve material findings autonomously. Repeat relevant tests and adversarial review after material corrections, and audit adjacent failures until the [pre-submission gate](../../.agents/skills/verify-mousesupremacy/SKILL.md) is satisfied.
-8. Submit the exact reviewed implementation and evidence for independent acceptance. Internal review supports this gate. Independent acceptance has its own verdict.
+8. Hand over the exact implementation SHA, evidence, and remaining gates for independent acceptance. Independent acceptance can proceed with external checks explicitly pending. Advance non-conflicting work while checks run. Avoid redundant builds and diagnose the evidenced cause before retrying a failed or cancelled job.
 9. Obtain scoped physical/runtime proof where acceptance requires it. Platform discovery needed to define requirements can occur earlier. Otherwise, finish automated and internal checks before asking the owner for runtime help.
-10. Record independent acceptance and any applicable physical gate before seeking owner approval and merge.
+10. Record the independent verdict and applicable physical proof separately. Before merge, applicable required checks must pass unless the owner authorizes a documented exception. Merge requires owner approval.
 11. Update persistent status, requirements, decisions and evidence. Record lessons that change future practice.
 
-The implementation agent owns design, test execution, routine debugging, corrections and evidence. The internal reviewer challenges the weakest claims and test oracle. The independent reviewer issues the acceptance verdict. The owner decides material scope or product direction changes, grants privileged access and approves merge or release. Escalate a genuine blocker the agent cannot resolve, such as inaccessible required hardware or a scope decision. Include the narrow decision or evidence needed and continue unaffected work.
+Prioritize approved gameplay functionality and reuse established diagnostic and build tooling. The implementation agent owns design, test execution, routine debugging, corrections and evidence. The internal reviewer challenges the weakest claims and test oracle. The independent reviewer issues the acceptance verdict. The owner decides material scope or product direction changes, grants privileged access and approves merge or release. Escalate a genuine blocker the agent cannot resolve, such as inaccessible required hardware or a scope decision. Include the narrow decision or evidence needed and continue unaffected work.
 
 ### Repeated-defect escalation
 

@@ -14,7 +14,7 @@ java_bin=${JAVA_HOME:+$JAVA_HOME/bin/}
 temporary=$(mktemp -d)
 trap 'rm -rf "$temporary"' EXIT
 mkdir -p "$output" "$temporary/classes" "$temporary/dex" "$temporary/assets"
-git -C "$repository" archive "$commit" LICENSE NOTICE tools/wsa-pointer-probe | tar -x -C "$temporary"
+git -C "$repository" archive "$commit" LICENSE NOTICE tools/wsa-pointer-probe pointer-input/src/main/java | tar -x -C "$temporary"
 source="$temporary/tools/wsa-pointer-probe"
 probe=com/pokedaisy/mousesupremacy/probe
 cat > "$temporary/BuildInfo.java" <<BUILD
@@ -26,6 +26,7 @@ BUILD
 cp "$temporary"/{LICENSE,NOTICE} "$temporary/assets/"
 printf '%s\n' "$commit" > "$temporary/assets/source-commit.txt"
 "${java_bin}javac" --release 17 -classpath "$platform" -d "$temporary/classes" \
+    "$temporary/pointer-input/src/main/java/com/pokedaisy/mousesupremacy/pointer/"*.java \
     "$source/src/$probe/"*.java "$temporary/BuildInfo.java"
 "${java_bin}jar" cf "$temporary/classes.jar" -C "$temporary/classes" .
 "$tools/d8" --min-api 26 --lib "$platform" --output "$temporary/dex" "$temporary/classes.jar"

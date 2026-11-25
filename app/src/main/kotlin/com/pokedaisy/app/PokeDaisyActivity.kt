@@ -126,6 +126,9 @@ class PokeDaisyActivity : Activity() {
     private val playClick: () -> Unit = { if (clickSoundOn) clickSound?.play() }
     @Volatile private var clickSoundOn = true
 
+    private var mousePointerTrace: MousePointerTrace? = null
+    private var pointerHudOccludes = true
+
     private val inputDeviceListener = object : android.hardware.input.InputManager.InputDeviceListener {
         override fun onInputDeviceAdded(id: Int) {
             InputDevice.getDevice(id)?.takeIf(::isGamepad)?.let {
@@ -135,12 +138,16 @@ class PokeDaisyActivity : Activity() {
             syncTouchControls()
         }
         override fun onInputDeviceRemoved(id: Int) {
+            mousePointerTrace?.deviceChanged(id)
             pads.remove(id)?.let { showHud(tr("Controller disconnected: {0}", it)) }
             // A keyboard-mode controller (see physicalPadUsed) may have been the one that went.
             physicalPadUsed = false
             syncTouchControls()
         }
-        override fun onInputDeviceChanged(id: Int) = syncTouchControls()
+        override fun onInputDeviceChanged(id: Int) {
+            mousePointerTrace?.deviceChanged(id)
+            syncTouchControls()
+        }
     }
 
     /** Connected controllers by device id, with their names (for the disconnect notice). */
@@ -421,7 +428,10 @@ class PokeDaisyActivity : Activity() {
         // The stick still tilted when it closes (the ring is aimed with it): kept from the game until it's let go, or the
         // player rides off - and a bike at full speed ignores the SELECT that BIKE / ROD press.
         q.onClose = { if (quickStickOff) quickStickHold = true }
-        q.onAimMove = { if (::view.isInitialized) view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK) }
+        q.onAimMove = {
+            mousePointerTrace?.invalidate("upstream-quick-aim")
+            if (::view.isInitialized) view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+        }
         q.onFly = { mapsec, targets -> quickActions.flyTo(mapsec, targets) }
     }
     private val quickShown = androidx.compose.runtime.mutableStateOf(com.pokedaisy.app.companion.QuickAction.entries.toSet())
@@ -2483,7 +2493,12 @@ class PokeDaisyActivity : Activity() {
         // either way. Never present in a release build regardless.
         debugMirror = isDebugMirrorEnabled()
 
+        mousePointerTrace = MousePointerTrace.create(this)
         view = EmulatorView(this)
+        mousePointerTrace?.let { trace ->
+            view.observePointerPicture = true
+            view.onPointerCallback = trace::view
+        }
         // Focusable, so a DS battle's menu can give it the focus ([dsBattleTakes]: no D-pad press lost to touch mode).
         view.isFocusable = true
         view.isFocusableInTouchMode = true
@@ -2521,6 +2536,7 @@ class PokeDaisyActivity : Activity() {
             visibility = View.GONE
         }
         touchControls = TouchControlsView(this).apply {
+            tracePadPointer = mousePointerTrace?.let { it::padCallback }
             onMask = ::onTouchKeysAnyThread
             onAction = ::onTouchAction
             inputAllowed = ::touchWindowsAllowed
@@ -2540,6 +2556,11 @@ class PokeDaisyActivity : Activity() {
             viewport.addView(n3dsDim, FrameLayout.LayoutParams(-1, -1))
         }
         stage = root
+        mousePointerTrace?.let { trace ->
+            root.observePointerLayout = true
+            root.tracePointerLayout = { trace.layoutObserved(::mousePointerScene) }
+            root.tracePointerDetach = { trace.invalidate("stage-detached") }
+        }
         // Compose on the stage runs on its own recomposer, for this activity's life (see stageRecomposer).
         root.compositionContext = stageRecomposer
         setContentView(root)
@@ -2621,6 +2642,7 @@ class PokeDaisyActivity : Activity() {
     private var freshLaunch = true
 
     private fun loadRom(romFile: File) {
+        mousePointerTrace?.invalidate("rom-change")
         if (::engine.isInitialized) engine.playback.close()
         endN3ds()
         if (com.pokedaisy.app.n3ds.N3dsCart.EXTENSIONS.contains(romFile.extension.lowercase()) && FeatureFlags.n3ds()) {
@@ -3627,6 +3649,7 @@ class PokeDaisyActivity : Activity() {
     }
 
     override fun onPause() {
+        mousePointerTrace?.invalidate("pause")
         super.onPause()
         tipsResumed = false
         com.pokedaisy.app.companion.FeatureTips.scheduler?.save()
@@ -3965,6 +3988,7 @@ class PokeDaisyActivity : Activity() {
 
     // A rotation (configChanges keeps the activity, and the game, running through it).
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        mousePointerTrace?.invalidate("configuration-change")
         // The touch controls' input windows keep frozen resources: another thread's windows can't take a configuration
         // update from this one (Samsung's Android makes one, a crash on rotations in 1.5.0: TouchInputWindows).
         if (::touchControls.isInitialized) touchControls.inputWindowsConfigurationChanged()
@@ -4019,6 +4043,7 @@ class PokeDaisyActivity : Activity() {
     // A move between two screens of one size changes no configuration; the moved activity gets the focus.
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
+        mousePointerTrace?.invalidate(if (hasFocus) "focus-gain" else "focus-loss")
         CrashReports.breadcrumb("game window focus: $hasFocus (display ${Screens.displayOf(this)})")
         if (hasFocus) followDisplay()
     }
@@ -4896,6 +4921,9 @@ class PokeDaisyActivity : Activity() {
         val buttonsWanted = battleButtonsOn.value && hudSingleScreen.value && !hudUpright.value && snap.hasData && !snap.unsupported &&
             snap.inBattle && !snap.isDoubleBattle && (!romIsNds || dsFloats.value && !dsPip.value)
         val buttons = buttonsWanted && battleRead && !dsWindowUp
+        if (mousePointerTrace != null) androidx.compose.runtime.SideEffect {
+            pointerHudOccludes = shown || buttons || snap.moveLearning != null || healShow.value != null
+        }
         // Where BATTLE BUTTONS can't stand in for a DS battle's command panel, that panel floats in too.
         androidx.compose.runtime.SideEffect { engine?.dsBattleMenuFloats = dsFloats.value && !dsPip.value && !buttonsWanted }
         androidx.compose.runtime.CompositionLocalProvider(
@@ -5319,6 +5347,9 @@ class PokeDaisyActivity : Activity() {
     // --- input ---------------------------------------------------------------
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+            mousePointerTrace?.invalidate("upstream-key")
+        }
         noteKeyDelay(event)
         // The companion's rebind waiting for keys: they're its alone - not the game's, the hotkeys' or BACK's.
         if (keyCapture.onKey(event)) return true
@@ -5741,29 +5772,85 @@ class PokeDaisyActivity : Activity() {
 
     // A controller's stick / D-pad / triggers, before the views: with the companion in this
     // window (side panel, phone upright) a focused ComposeView would see them first.
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        val trace = mousePointerTrace ?: return super.dispatchTouchEvent(event)
+        return trace.dispatch(event, "touch", hasWindowFocus(), ::mousePointerScene) { super.dispatchTouchEvent(event) }
+    }
+
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
-        if (event.isFromSource(InputDevice.SOURCE_JOYSTICK) && keyCapture.onTriggers(
-                maxOf(event.getAxisValue(MotionEvent.AXIS_LTRIGGER), event.getAxisValue(MotionEvent.AXIS_BRAKE)),
-                maxOf(event.getAxisValue(MotionEvent.AXIS_RTRIGGER), event.getAxisValue(MotionEvent.AXIS_GAS), event.getAxisValue(MotionEvent.AXIS_THROTTLE)),
+        val trace = mousePointerTrace ?: return dispatchUpstreamMotion(event)
+        if (event.isFromSource(InputDevice.SOURCE_JOYSTICK)) return dispatchUpstreamMotion(event)
+        return trace.dispatch(event, "generic", hasWindowFocus(), ::mousePointerScene) { dispatchUpstreamMotion(event) }
+    }
+
+    private fun mousePointerScene(): MousePointerTrace.Scene? {
+        if (!::stage.isInitialized || !stage.isShown || stage.windowToken != window.decorView.windowToken ||
+            stage.frames == null || stage.width <= 0 || stage.height <= 0) return null
+        val at = IntArray(2).also(stage::getLocationInWindow)
+        val originX = at[0].toFloat()
+        val originY = at[1].toFloat()
+        val bounds = com.pokedaisy.mousesupremacy.pointer.PointerLayout.Bounds(
+            originX, originY, originX + stage.width, originY + stage.height,
+        )
+        fun windowRect(rect: androidx.compose.ui.geometry.Rect) = com.pokedaisy.mousesupremacy.pointer.PointerLayout.Bounds(
+            rect.left + originX, rect.top + originY, rect.right + originX, rect.bottom + originY,
+        )
+        val chrome = stage.pointerChrome.map(::windowRect) + listOfNotNull(statusBar.pointerVisibleBounds())
+        val clip = view.pointerVisibleBounds()
+        view.getLocationInWindow(at)
+        val picture = view.pointerPicture?.takeIf {
+            clip != null && !view.wide && view.overlay == null && !view.holdFrame() &&
+                !romIsNds && !romIs3ds && !romIsGameBoy && stage.viewport.skinGame == null &&
+                it.width == view.width && it.height == view.height
+        }
+        val quad = picture?.quad?.let {
+            com.pokedaisy.mousesupremacy.pointer.PointerLayout.Bounds(
+                it.left() + at[0], it.top() + at[1], it.right() + at[0], it.bottom() + at[1],
             )
-        ) return true
-        if (event.isFromSource(InputDevice.SOURCE_JOYSTICK) && onGenericMotionEvent(event)) return true
+        }
+        val layout = com.pokedaisy.mousesupremacy.pointer.PointerLayout(
+            bounds, stage.pointerCompanion?.let(::windowRect), chrome, touchControls.pointerReservations(),
+            stage.pointerOutsideDismiss || !touchWindowsAllowed() || touchControls.pointerPadHeld || debugMirror,
+            pointerHudOccludes || performanceShown.value || hud.visibility == View.VISIBLE,
+            clip, quad, picture?.transform ?: -1L,
+        )
+        return MousePointerTrace.Scene(layout, picture?.frame)
+    }
+
+    // A renderer or parent transform we cannot correlate with the GL surface withdraws the picture.
+    private fun View.pointerVisibleBounds(): com.pokedaisy.mousesupremacy.pointer.PointerLayout.Bounds? {
+        if (!isShown || windowToken != stage.windowToken) return null
+        var ancestor: View? = this
+        while (ancestor != null) {
+            if (!ancestor.matrix.isIdentity || ancestor.isLayoutRequested) return null
+            ancestor = ancestor.parent as? View
+        }
+        val rect = android.graphics.Rect()
+        if (!getLocalVisibleRect(rect)) return null
+        val at = IntArray(2).also(::getLocationInWindow)
+        return com.pokedaisy.mousesupremacy.pointer.PointerLayout.Bounds(
+            (at[0] + rect.left).toFloat(), (at[1] + rect.top).toFloat(),
+            (at[0] + rect.right).toFloat(), (at[1] + rect.bottom).toFloat(),
+        )
+    }
+
+    private fun dispatchUpstreamMotion(event: MotionEvent): Boolean {
+        if (event.isFromSource(InputDevice.SOURCE_JOYSTICK)) {
+            val triggers = ControllerTriggers.read(event::getAxisValue)
+            mousePointerTrace?.controllerMotion(event, triggers)
+            if (keyCapture.onTriggers(triggers.left, triggers.right)) return true
+            if (onGameMotion(event, triggers)) return true
+        }
         return super.dispatchGenericMotionEvent(event)
     }
 
-    override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+    override fun onGenericMotionEvent(event: MotionEvent): Boolean =
+        onGameMotion(event, ControllerTriggers.read(event::getAxisValue))
+
+    private fun onGameMotion(event: MotionEvent, triggers: ControllerTriggers): Boolean {
         if (::engine.isInitialized) {
-            val rt = maxOf(
-                event.getAxisValue(MotionEvent.AXIS_RTRIGGER),
-                event.getAxisValue(MotionEvent.AXIS_GAS),
-                event.getAxisValue(MotionEvent.AXIS_THROTTLE),
-            )
-            val lt = maxOf(
-                event.getAxisValue(MotionEvent.AXIS_LTRIGGER),
-                event.getAxisValue(MotionEvent.AXIS_BRAKE),
-            )
-            if ((rt > 0.5f) != rtDown) { rtDown = rt > 0.5f; triggerKey(KeyEvent.KEYCODE_BUTTON_R2, rtDown) }
-            if ((lt > 0.5f) != ltDown) { ltDown = lt > 0.5f; triggerKey(KeyEvent.KEYCODE_BUTTON_L2, ltDown) }
+            if (triggers.rightDown != rtDown) { rtDown = triggers.rightDown; triggerKey(KeyEvent.KEYCODE_BUTTON_R2, rtDown) }
+            if (triggers.leftDown != ltDown) { ltDown = triggers.leftDown; triggerKey(KeyEvent.KEYCODE_BUTTON_L2, ltDown) }
         }
         if (::sidePanel.isInitialized && sidePanel.windowOpen && menuMotion(event)) return true
         if (bottomFocus.value && bottomMotion(event)) return true

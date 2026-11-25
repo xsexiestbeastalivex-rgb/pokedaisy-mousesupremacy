@@ -1,10 +1,15 @@
 package com.pokedaisy.mousesupremacy.probe;
 
-import static com.pokedaisy.mousesupremacy.probe.PointerState.Action.*;
+import com.pokedaisy.mousesupremacy.pointer.DeviceAliases;
+import com.pokedaisy.mousesupremacy.pointer.PointerNormalizer;
+import com.pokedaisy.mousesupremacy.pointer.PointerState;
+import com.pokedaisy.mousesupremacy.pointer.WsaPointer;
 
-import com.pokedaisy.mousesupremacy.probe.PointerState.Action;
-import com.pokedaisy.mousesupremacy.probe.PointerState.Sample;
-import com.pokedaisy.mousesupremacy.probe.ProbeInput.Decision;
+import static com.pokedaisy.mousesupremacy.pointer.PointerState.Action.*;
+
+import com.pokedaisy.mousesupremacy.pointer.PointerState.Action;
+import com.pokedaisy.mousesupremacy.pointer.PointerState.Sample;
+import com.pokedaisy.mousesupremacy.pointer.PointerNormalizer.Decision;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -105,7 +110,7 @@ public final class RouterOrderingTest {
         }
     }
 
-    private static void close(ProbeInput r, Boundary boundary, int order) {
+    private static void close(PointerNormalizer r, Boundary boundary, int order) {
         if (boundary == Boundary.TERMINAL_FIRST) {
             ignored(send(r, 1, BUTTON_RELEASE, 200, 220));
             return;
@@ -235,19 +240,19 @@ public final class RouterOrderingTest {
         gesture(r, 2, 300, 320, 0);
     }
 
-    private static ProbeInput fresh(String name) {
+    private static PointerNormalizer fresh(String name) {
         scenario = name;
         sequences++;
-        var r = new ProbeInput(3);
+        var r = new PointerNormalizer(3);
         for (int slot = 1; slot <= 3; slot++) r.attach(slot);
         return r;
     }
 
-    private static void gesture(ProbeInput r, int slot, long down, long end, int order) {
+    private static void gesture(PointerNormalizer r, int slot, long down, long end, int order) {
         for (int step = 0; step < 4; step++) validEdge(r, slot, down, end, order, step);
     }
 
-    private static void validEdge(ProbeInput r, int slot, long down, long end, int order, int step) {
+    private static void validEdge(PointerNormalizer r, int slot, long down, long end, int order, int step) {
         int flip = step < 2 ? order & 1 : (order >> 1) & 1;
         var decision = send(r, slot, PAIR[step ^ flip], down, step < 2 ? down : end);
         if (step == 0) {
@@ -263,7 +268,7 @@ public final class RouterOrderingTest {
                 "wrong edge at step " + step + " " + decision);
     }
 
-    private static Decision send(ProbeInput r, int slot, Action action, long down, long time) {
+    private static Decision send(PointerNormalizer r, int slot, Action action, long down, long time) {
         int button = action == BUTTON_PRESS || action == BUTTON_RELEASE ? 1 : 0;
         int mask = action == DOWN || action == BUTTON_PRESS || action == MOVE ? 1 : 0;
         callbacks++;
@@ -271,7 +276,7 @@ public final class RouterOrderingTest {
                 slot, WSA_SOURCE, 1, true, 10);
     }
 
-    private static Decision external(ProbeInput r, int slot, Action action, long down, long time,
+    private static Decision external(PointerNormalizer r, int slot, Action action, long down, long time,
                                      int mask, int source, int tool) {
         callbacks++;
         return r.observe(new Sample(action, "A", 0, 0, down, time, 0, 1, 0, mask, true, false),
@@ -291,7 +296,7 @@ public final class RouterOrderingTest {
                 && result.held() == 0 && result.click() == 0 && result.pressed() == 0
                 && result.released() == 0, "expected cancellation " + d);
         if (displacedSlot == 0) check(d.displaced() == null, "unexpected second cancellation " + d);
-        else if (!ProbeInput.STANDARD.equals(d.interpretation())) {
+        else if (!PointerNormalizer.STANDARD.equals(d.interpretation())) {
             check(d.result() == null, "translated contender emitted an edge " + d);
         }
     }

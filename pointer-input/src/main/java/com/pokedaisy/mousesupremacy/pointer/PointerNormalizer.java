@@ -1,64 +1,78 @@
-package com.pokedaisy.mousesupremacy.probe;
+package com.pokedaisy.mousesupremacy.pointer;
 
-import static com.pokedaisy.mousesupremacy.probe.PointerState.Action.*;
-import static com.pokedaisy.mousesupremacy.probe.PointerState.OUTSIDE;
-import com.pokedaisy.mousesupremacy.probe.PointerState.Result;
-import com.pokedaisy.mousesupremacy.probe.PointerState.Sample;
+import static com.pokedaisy.mousesupremacy.pointer.PointerState.Action.*;
+import static com.pokedaisy.mousesupremacy.pointer.PointerState.OUTSIDE;
+import com.pokedaisy.mousesupremacy.pointer.PointerState.Result;
+import com.pokedaisy.mousesupremacy.pointer.PointerState.Sample;
 
 import java.util.Arrays;
 
-/** Arbitration for authoritative probe callbacks. No raw Android event is consumed here. */
-final class ProbeInput {
-    static final String STANDARD = "android-mouse";
-    static final String WSA = "wsa-experimental";
+/** Arbitrates authoritative Android pointer samples without dispatching or consuming platform events. */
+public final class PointerNormalizer {
+    public static final String STANDARD = "android-mouse";
+    public static final String WSA = "wsa-experimental";
     private static final int SOURCE_MOUSE = 0x2002;
     private static final int TOOL_MOUSE = 3;
     private static final int CLASS_POINTER = 2;
 
-    record Decision(Result result, String interpretation, int displacedSlot, Result displaced) {}
+    public record Decision(Result result, String interpretation, int displacedSlot, Result displaced) {}
 
     private final PointerState[] standard;
     private final WsaPointer[] wsa;
     private final long[] directContact;
+    private final long[] directClosedThrough;
     private long openingFence = -1;
     // Inclusive Android uptime cutoff shared by all translated slots, including when idle.
     private long wsaClosedThrough = -1;
     private int wsaOwner;
 
-    ProbeInput(int deviceLimit) {
+    public PointerNormalizer(int deviceLimit) {
         standard = new PointerState[deviceLimit + 1];
         wsa = new WsaPointer[deviceLimit + 1];
         directContact = new long[deviceLimit + 1];
         Arrays.fill(directContact, -1);
+        directClosedThrough = new long[deviceLimit + 1];
+        Arrays.fill(directClosedThrough, -1);
     }
 
-    void attach(int slot) {
+    public void attach(int slot) {
         standard[slot] = new PointerState();
         wsa[slot] = new WsaPointer();
     }
 
-    void detach(int slot) {
+    public void detach(int slot) {
         if (wsaOwner == slot) retireOwner(wsa[slot].latestEvent(), "device-detached");
         standard[slot] = null;
         wsa[slot] = null;
         directContact[slot] = -1;
+        directClosedThrough[slot] = -1;
     }
 
-    void fenceOpenings(long through) {
+    public void fenceOpenings(long through) {
         openingFence = Math.max(openingFence, through);
     }
 
-    Result invalidate(int slot, long through, String reason, boolean translated) {
-        directContact[slot] = -1;
+    public Result invalidate(int slot, long through, String reason, boolean translated) {
+        closeDirectContact(slot, through);
         if (translated) {
             if (wsaOwner == slot) return retireOwner(through, reason);
             closeThrough(through);
             return wsa[slot].invalidate(through, reason);
         }
+        return invalidateConventional(slot, through, reason);
+    }
+
+    public Result invalidateConventional(int slot, long through, String reason) {
         return standard[slot].invalidate(through, reason);
     }
 
-    Decision observe(Sample sample, int slot, int source, int tool, boolean wsaEnabled, float slop) {
+    /** Retire an applicable contact without passing the terminal to either mouse state machine. */
+    Decision observeContactTerminal(Sample sample, int slot, int source, int tool) {
+        endDirectContact(sample, slot, source, tool);
+        return new Decision(null, null, 0, null);
+    }
+
+    public Decision observe(Sample sample, int slot, int source, int tool, boolean wsaEnabled, float slop) {
         boolean translated = WsaPointer.accepts(wsaEnabled, source, tool, slot);
         boolean mouse = tool == TOOL_MOUSE && (source & SOURCE_MOUSE) == SOURCE_MOUSE;
         boolean pointer = (source & CLASS_POINTER) != 0;
@@ -76,7 +90,7 @@ final class ProbeInput {
         boolean continuing = translated && owner != null && ownerSlot == slot && owner.generation() == downTime;
         boolean stale = timed && (downTime <= Math.max(wsaClosedThrough, openingFence)
                 || owner != null && downTime < owner.generation());
-        if (slot != 0 && !mouse) endDirectContact(sample, slot, timed);
+        endDirectContact(sample, slot, source, tool);
         if (translated && contact) {
             if (!timed) return unorderable(sample, slot, ownerSlot, owner, continuing);
             if (stale && !continuing) return new Decision(null, WSA, 0, null);
@@ -100,7 +114,7 @@ final class ProbeInput {
         if (slot == 0) return new Decision(null, interpretation, displacedSlot, displaced);
 
         if (sample.action() == DOWN && pointer && !mouse && (!translated || sample.buttons() == 0)
-                && timed && !stale && downTime >= directContact[slot]) {
+                && timed && !stale && downTime > directClosedThrough[slot] && downTime >= directContact[slot]) {
             directContact[slot] = downTime;
         }
 
@@ -116,14 +130,29 @@ final class ProbeInput {
         return new Decision(result, interpretation, displacedSlot, displaced);
     }
 
-    private void endDirectContact(Sample sample, int slot, boolean timed) {
-        long direct = directContact[slot];
-        if (direct < 0) return;
-        boolean coversContact = timed && sample.downTime() >= direct;
-        if (sample.action() == UP && coversContact || sample.action() == CANCEL
-                && (coversContact || !timed && (sample.eventTime() <= 0 || sample.eventTime() >= direct))) {
-            directContact[slot] = -1;
+    private void endDirectContact(Sample sample, int slot, int source, int tool) {
+        if (slot == 0 || !sample.focused() || (sample.action() != UP && sample.action() != CANCEL)
+                || tool == TOOL_MOUSE || (source & SOURCE_MOUSE) == SOURCE_MOUSE) return;
+        boolean knownPointer = (source & CLASS_POINTER) != 0;
+        boolean unidentifiedCancel = sample.action() == CANCEL && source == 0 && tool == 0;
+        if (!knownPointer && !unidentifiedCancel) return;
+
+        if (sample.hasContactTime()) {
+            // A newer terminal on this slot can close a lost older contact. Tombstone its own
+            // generation even when its DOWN has not arrived, without fencing unrelated slots.
+            if (knownPointer || sample.downTime() == directContact[slot]) {
+                directClosedThrough[slot] = Math.max(directClosedThrough[slot], sample.downTime());
+                if (directContact[slot] <= sample.downTime()) directContact[slot] = -1;
+            }
+        } else if (sample.action() == CANCEL && directContact[slot] >= 0
+                && (sample.eventTime() <= 0 || sample.eventTime() >= directContact[slot])) {
+            closeDirectContact(slot, directContact[slot]);
         }
+    }
+
+    private void closeDirectContact(int slot, long through) {
+        directClosedThrough[slot] = Math.max(directClosedThrough[slot], Math.max(directContact[slot], through));
+        directContact[slot] = -1;
     }
 
     private Result observeTranslated(Sample sample, int slot, float slop) {
@@ -174,13 +203,27 @@ final class ProbeInput {
         wsaClosedThrough = Math.max(wsaClosedThrough, through);
     }
 
+    /** Current buttonless occupancy survives between Activity callbacks. */
+    public boolean hasDirectContact() { return hasDirectContactSince(0); }
+
+    /** True only for a buttonless opening that the contact ledger admitted on this slot. */
+    public boolean isDirectOpening(int slot, Sample sample) {
+        return slot != 0 && sample.action() == DOWN && sample.buttons() == 0
+                && directContact[slot] >= 0 && directContact[slot] == sample.downTime();
+    }
+
+    boolean hasDirectContactSince(long generation) {
+        for (long contact : directContact) if (contact >= generation) return true;
+        return false;
+    }
+
     private boolean hasCompetingContact(int slot, Sample sample) {
         for (int other = 1; other < standard.length; other++) {
             if (standard[other] != null && standard[other].held()) return true;
             if (directContact[other] >= 0 && (other != slot || sample.downTime() <= directContact[other])) return true;
         }
         // A newer translated generation on the same guest ID can recover a missing direct-touch up.
-        directContact[slot] = -1;
+        closeDirectContact(slot, sample.downTime());
         return false;
     }
 }

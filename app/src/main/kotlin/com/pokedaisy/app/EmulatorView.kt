@@ -1,6 +1,7 @@
 package com.pokedaisy.app
 
 import android.content.Context
+import android.view.MotionEvent
 import android.graphics.SurfaceTexture
 import android.opengl.GLES11Ext
 import android.opengl.GLES20
@@ -34,6 +35,35 @@ import kotlin.math.roundToInt
  * top of the new one over the bottom of the old - a tear across the screen while scrolling.
  */
 class EmulatorView(context: Context) : GLSurfaceView(context) {
+    internal data class PointerPicture(
+        val width: Int,
+        val height: Int,
+        val frame: Long,
+        val transform: Long,
+        val quad: com.pokedaisy.mousesupremacy.pointer.PointerLayout.Bounds,
+    )
+
+    internal var observePointerPicture: Boolean
+        get() = renderer.observePointerPicture
+        set(value) { renderer.observePointerPicture = value }
+
+    internal val pointerPicture: PointerPicture? get() = renderer.pointerPicture
+    internal var onPointerCallback: ((MotionEvent, String) -> Unit)? = null
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        onPointerCallback?.invoke(event, "touch")
+        return super.onTouchEvent(event)
+    }
+
+    override fun onHoverEvent(event: MotionEvent): Boolean {
+        onPointerCallback?.invoke(event, "hover")
+        return super.onHoverEvent(event)
+    }
+
+    override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        onPointerCallback?.invoke(event, "generic")
+        return super.onGenericMotionEvent(event)
+    }
 
     private val renderer = FrameRenderer()
 
@@ -118,6 +148,11 @@ class EmulatorView(context: Context) : GLSurfaceView(context) {
                 android.graphics.RectF((width - w) / 2, 0f, (width + w) / 2, height.toFloat())
             } else android.graphics.RectF(0f, 0f, width.toFloat(), height.toFloat()),
         )
+    }
+
+    override fun surfaceDestroyed(holder: android.view.SurfaceHolder) {
+        super.surfaceDestroyed(holder)
+        renderer.pointerPicture = null
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -373,6 +408,11 @@ class EmulatorView(context: Context) : GLSurfaceView(context) {
      * behind it; the game's quad is then its place in the overlay ([OverlayGeometry.layout]).
      */
     private class FrameRenderer : Renderer {
+        @Volatile var observePointerPicture = false
+        @Volatile var pointerPicture: PointerPicture? = null
+        private var pointerTransform = 0L
+        private var readyHasPixels = false  // under frameLock
+        private var shownHasPixels = false  // under lock
         /** The core's own frame buffer, read only by [publish] (the emu thread). */
         private var buffer: ByteBuffer? = null
         /** The core's WIDE frame buffer ([MgbaCore.pkWideBuffer]), read only by [publish]; null without WIDE. */
@@ -491,7 +531,10 @@ class EmulatorView(context: Context) : GLSurfaceView(context) {
                 readyW = w
                 readyH = h
                 readyWin = null
+                readyHasPixels = false
             }
+            shownHasPixels = false
+            pointerPicture = null
             shownWin = null
             texW = w
             texH = h
@@ -528,6 +571,7 @@ class EmulatorView(context: Context) : GLSurfaceView(context) {
             readyW = w
             readyH = h
             readyWin = if (wideSrc != null) win else null
+            readyHasPixels = true
             if (fresh) unshownFrames++
             fresh = true
             (frameLock as Object).notifyAll()
@@ -547,6 +591,7 @@ class EmulatorView(context: Context) : GLSurfaceView(context) {
 
         fun setStretch(on: Boolean) = synchronized(lock) {
             stretch = on
+            pointerPicture = null
             dirtyGeometry = true
         }
 
@@ -562,12 +607,15 @@ class EmulatorView(context: Context) : GLSurfaceView(context) {
 
         fun setOverlay(img: OverlayImage?) = synchronized(lock) {
             overlay = img
+            pointerPicture = null
             overlayUploaded = false
             dirtyGeometry = true
         }
 
         /** Drops the buffer references; [onDrawFrame] just clears until the next [bind]. */
         fun unbind() = synchronized(lock) {
+            pointerPicture = null
+            shownHasPixels = false
             synchronized(frameLock) {
                 buffer = null
                 wideBuffer = null   // pkDeinit frees it too: the next core's wide frames read it until its bind
@@ -577,6 +625,7 @@ class EmulatorView(context: Context) : GLSurfaceView(context) {
         }
 
         override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) = synchronized(lock) {
+            pointerPicture = null
             // A new context: everything made in the old one is gone with it.
             GLES20.glClearColor(0f, 0f, 0f, 1f)
             plain = Program(ScreenShaders.PLAIN)
@@ -679,6 +728,7 @@ class EmulatorView(context: Context) : GLSurfaceView(context) {
         }
 
         override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) = synchronized(lock) {
+            pointerPicture = null
             surfaceW = width
             surfaceH = height
             dirtyGeometry = true
@@ -687,7 +737,10 @@ class EmulatorView(context: Context) : GLSurfaceView(context) {
         override fun onDrawFrame(gl: GL10?) {
             val wait = onVsync?.invoke() ?: 0L
             if (wait > 0) awaitFresh(wait)
-            synchronized(lock) { draw() }
+            synchronized(lock) {
+                draw()
+                if (observePointerPicture) reportPointerPicture()
+            }
         }
 
         private fun draw() {
@@ -700,9 +753,11 @@ class EmulatorView(context: Context) : GLSurfaceView(context) {
             GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
             GLES20.glViewport(0, 0, surfaceW, surfaceH)
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
-            if (buffer == null) return
+            if (buffer == null || plain == null || texW == 0 || surfaceW == 0) {
+                pointerPicture = null
+                return
+            }
             val plain = plain ?: return
-            if (texW == 0 || surfaceW == 0) return
 
             // glTex(Sub)Image2D has taken the pixels by the time it returns, so frameLock
             // is held only for the copy into GL, not the passes below.
@@ -739,6 +794,7 @@ class EmulatorView(context: Context) : GLSurfaceView(context) {
                     fresh = false
                     shownWin = readyWin
                     framesShown += 1
+                    shownHasPixels = readyHasPixels
                     gpuShown = false
                 } else if (fresh && !holdFrame()) {
                     // A held frame keeps the texture as is: the last frame shown stays up.
@@ -750,6 +806,7 @@ class EmulatorView(context: Context) : GLSurfaceView(context) {
                     fresh = false
                     shownWin = readyWin
                     framesShown++
+                    shownHasPixels = readyHasPixels
                 }
             }
             if (dirtyGeometry) {
@@ -825,6 +882,23 @@ class EmulatorView(context: Context) : GLSurfaceView(context) {
             if (last === plain && !smooth) pixels?.let { last = it }
             drawQuad(last, input, viewUv, pos, smooth, smoothed = readsPicture && !prescaled)
             if (overlayOnTop && win == null) drawOverlay()
+        }
+
+        // A GL draw candidate. The framework swaps the surface after onDrawFrame returns.
+        private fun reportPointerPicture() {
+            if (buffer == null || plain == null || !shownHasPixels || !texAllocated || gpuShown ||
+                frameW != 240 || frameH != 160 || texW != 240 || texH != 160 ||
+                shownWin != null || overlay != null || surfaceW <= 0 || surfaceH <= 0 || holdFrame()) {
+                pointerPicture = null
+                return
+            }
+            if (pointerPicture?.let { it.frame == framesShown && it.transform == pointerTransform } == true) return
+            // Invert the actual quad submitted above. Its bottom-left vertex comes first.
+            val quad = com.pokedaisy.mousesupremacy.pointer.PointerLayout.Bounds(
+                (pos[0] + 1f) * surfaceW / 2f, (1f - pos[5]) * surfaceH / 2f,
+                (pos[2] + 1f) * surfaceW / 2f, (1f - pos[1]) * surfaceH / 2f,
+            )
+            pointerPicture = PointerPicture(surfaceW, surfaceH, framesShown, pointerTransform, quad)
         }
 
         /** The overlay, if any, over what's drawn (premultiplied alpha, as Android's bitmaps are). */
@@ -971,6 +1045,7 @@ class EmulatorView(context: Context) : GLSurfaceView(context) {
         }
 
         private fun recomputeQuad() {
+            pointerTransform++
             placedWin = null
             val img = overlay
             if (img != null) {

@@ -42,6 +42,8 @@ For generated sequences, state the domain, bounds, independent oracle and omitte
 
 ### ROM-free launch and evidence
 
+For scored Phase 1C checkout, first match the installed dev base APK to the verified artifact on the exact device. The package and PID checks below establish launcher identity only. [Installed-build gate](DEVELOPMENT.md#phase-1c-application-pointer-checkout)
+
 When a probe change requires physical regression, select its exact signed artifact and independently recorded digest from the [project evidence ledger](PROJECT_STATUS.md). Adapt the [windowed and maximized procedure](../../tools/wsa-pointer-probe/README.md#phase-1b4-minimal-physical-regression) to the changed behavior. Keep prior physical runs attached to their original APKs. Record the probe package and launcher, Android target and host provenance for the run. For a baseline PokeDaisy integration smoke check, use a verified `com.pokedaisy.app.dev` artifact, a clean disposable instance or known disposable dev install, and an empty dev library. Start only the dev library launcher, without a ROM, URI, extras, imported data or a retained game task. The source manifest declares `LibraryActivity` as the launcher. [Development artifact and storage prerequisites](DEVELOPMENT.md#pre-launch-save-isolation-gate) · [launcher component](../../app/src/main/AndroidManifest.xml#L72)
 
 The following PowerShell example assumes a verified artifact is already installed in the clean test scope. Select the exact Android target locally from `adb devices -l` and keep its serial out of shared evidence.

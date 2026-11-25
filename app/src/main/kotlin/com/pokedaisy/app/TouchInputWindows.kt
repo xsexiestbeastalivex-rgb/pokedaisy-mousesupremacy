@@ -56,6 +56,9 @@ import kotlin.math.roundToInt
 class TouchInputWindows(private val anchor: View, private val tracker: TouchPressTracker) {
     private val thread = HandlerThread("pokedaisy-touch", Process.THREAD_PRIORITY_URGENT_DISPLAY).apply { start() }
     private val handler = Handler(thread.looper)
+    @Volatile internal var onPointerCallback: ((Int, Long) -> Unit)? = null
+    @Volatile internal var pointerContactHeld = false
+        private set
     // Window-manager ownership follows the anchor's display, not the Activity that originally made it (SWAP).
     private var wm = anchor.context.getSystemService(WindowManager::class.java)
     private var displayContext = anchor.context
@@ -74,6 +77,11 @@ class TouchInputWindows(private val anchor: View, private val tracker: TouchPres
     private var sentModel: TouchHitModel? = null
     private var sentExcluded: List<IntRect> = emptyList()
     private var released = false
+
+    /** UI thread: regions reserved for the native pad while the window-manager update is in flight. */
+    internal fun pointerReservations() = if (sentOn) {
+        sentRects.map { Rect(it).apply { offset(sentX, sentY) } }
+    } else emptyList()
 
     // [thread] only from here down.
     private val pads = ArrayList<Pad>()
@@ -94,6 +102,7 @@ class TouchInputWindows(private val anchor: View, private val tracker: TouchPres
         override fun onTouchEvent(e: MotionEvent): Boolean {
             n = 0
             val action = e.actionMasked
+            onPointerCallback?.invoke(action, e.eventTime)
             // Debug builds: how long a press waited before it reached us (the UI thread's waits shouldn't show here).
             if (BuildConfig.DEBUG && (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN)) {
                 Log.d("pokedaisy/touch", "press after ${android.os.SystemClock.uptimeMillis() - e.eventTime} ms")
@@ -190,7 +199,11 @@ class TouchInputWindows(private val anchor: View, private val tracker: TouchPres
         if (this.on != on) {
             this.on = on
             // Letting go of the game's buttons when the drawn pad takes over (a finger still down was ours).
-            if (!on) { pads.forEach { it.n = 0 }; tracker.update(TouchPressTracker.SOURCE_WINDOWS, TouchHits.NONE) }
+            if (!on) {
+                pointerContactHeld = false
+                pads.forEach { it.n = 0 }
+                tracker.update(TouchPressTracker.SOURCE_WINDOWS, TouchHits.NONE)
+            }
         }
     }
 
@@ -203,6 +216,7 @@ class TouchInputWindows(private val anchor: View, private val tracker: TouchPres
     private fun removeAll() {
         for (pad in pads) runCatching { wm.removeViewImmediate(pad) }
         pads.clear()
+        pointerContactHeld = false
         tracker.update(TouchPressTracker.SOURCE_WINDOWS, TouchHits.NONE)
     }
 
@@ -229,6 +243,7 @@ class TouchInputWindows(private val anchor: View, private val tracker: TouchPres
         if (!on) return
         var n = 0
         for (pad in pads) for (i in 0 until pad.n) if (n < MAX_FINGERS) { xs[n] = pad.fx[i]; ys[n] = pad.fy[i]; n++ }
+        if (onPointerCallback != null) pointerContactHeld = n > 0
         tracker.update(TouchPressTracker.SOURCE_WINDOWS, touchHits(m, xs, ys, n))
     }
 

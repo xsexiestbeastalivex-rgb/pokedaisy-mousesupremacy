@@ -37,6 +37,7 @@ fun GameScreen(
     screenOverlayTop: () -> Int = { 0 },
     /** Read at each tap's down: a tap on the game closes an open (undocked) side panel - the touch controls hidden. */
     dismissSideOnGameTap: () -> Boolean = { false }, chromeModifier: Modifier = Modifier,
+    onPointerOcclusion: ((companion: Rect?, dismissOutside: Boolean) -> Unit)? = null,
     onFrames: (GameScreenFrames, List<Rect>) -> Unit = { _, _ -> },
 ) {
     val side = state.side
@@ -135,7 +136,13 @@ fun GameScreen(
             underlay.place(frames.game.left.roundToInt(), frames.game.top.roundToInt())
             pad.place(frames.controls.left.roundToInt(), frames.controls.top.roundToInt())
             hud.place(picture.left.roundToInt(), picture.top.roundToInt())
-            if (w > 0 && h > 0 && (frames.companionShown || !portrait.enabled && side.enabled && reveal > 0f)) panel.place(panelLeft, frames.companion.top.roundToInt())
+            val panelTop = frames.companion.top.roundToInt()
+            val panelPlaced = w > 0 && h > 0 && (frames.companionShown || !portrait.enabled && side.enabled && reveal > 0f)
+            if (panelPlaced) panel.place(panelLeft, panelTop)
+            onPointerOcclusion?.invoke(
+                if (panelPlaced) chromeRect(panelLeft, panelTop, panel.width, panel.height) else null,
+                dismissOnTap() && side.sideShown && !side.isDocked,
+            )
             grip.place(gripRect.left.roundToInt(), gripRect.top.roundToInt())
             handle.place(handleRect.left.roundToInt(), handleRect.top.roundToInt())
             close.place(closeRect.left.roundToInt(), closeRect.top.roundToInt())

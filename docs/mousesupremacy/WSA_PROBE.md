@@ -20,7 +20,7 @@ For the corrected build, use the [short Phase 1B.4 regression](../../tools/wsa-p
 
 ## Translated contact ordering
 
-The probe orders translated contacts on Android's monotonic uptime clock. An alias names a bounded callback slot. It can change or be reused and does not identify physical hardware. Ordering uses an inclusive router-wide cutoff plus the current translated contact and bounded slot state. The cutoff survives completion, cancellation, device removal, slot reuse and capture reset in the same Android uptime session. Focus, layout and capture lifecycle fences also apply.
+The probe orders translated contacts on Android's monotonic uptime clock. A public alias identifies one attachment within the capture session and carries no physical hardware identity. Internal callback slots are bounded and reusable after detachment. Ordering uses an inclusive router-wide cutoff plus the current translated contact and bounded slot state. The cutoff survives completion, cancellation, device removal, slot reuse and capture reset in the same Android uptime session. Focus, layout and capture lifecycle fences also apply.
 
 | State | Eligible transition |
 | --- | --- |
