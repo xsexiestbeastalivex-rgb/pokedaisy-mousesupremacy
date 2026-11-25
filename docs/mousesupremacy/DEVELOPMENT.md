@@ -22,30 +22,56 @@ The [fork artifact workflow](../../.github/workflows/mousesupremacy-dev-apk.yml)
 
 After the workflow reaches the default branch, dispatch **MouseSupremacy development APK** in Actions using a same-fork branch already pinned to the intended full SHA. Verify its remote head with `git ls-remote --exit-code origin "refs/heads/$build_ref"` (with `$build_ref` set to that branch and `origin` verified as this fork) and keep the branch fixed until the run starts. The GitHub CLI equivalent is `gh workflow run mousesupremacy-dev-apk.yml --repo xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy --ref "$build_ref"`. Select the resulting successful run by workflow and head SHA, then download the artifact named `pokedaisy-dev-apk-<full-sha>` from that run. [GitHub dispatch documentation](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow)
 
-Check the run SHA, artifact name the `Source` commit in the bundled `build-info.txt`, and `assets/source-commit.txt` inside the APK against the intended SHA. A mismatch means the artifact cannot verify the intended source. Verify the ZIP against the Actions digest when available, then verify the APK against `SHA256SUMS`, inspect the package and native ABIs with Build Tools, and verify its signing certificate with `apksigner verify --print-certs`. Record run, artifact, exact SHA, package, ABIs, both digests when available, and signer in the evidence ledger. Preserve the provenance and notices. The archive expires after seven days. When it expires, retain the recorded evidence and rebuild from the reviewed SHA only when the use case requires fresh bytes.
+Check the run SHA, artifact name, the `Source` commit in the bundled `build-info.txt`, and `assets/source-commit.txt` inside the APK against the intended SHA. A mismatch means the artifact cannot verify the intended source. Verify the ZIP against the Actions digest when available, then verify the APK against `SHA256SUMS`, inspect the package and native ABIs with Build Tools, and verify its signing certificate with `apksigner verify --print-certs`. Record run, artifact, exact SHA, package, ABIs, both digests when available, and signer in the evidence ledger. Preserve the provenance and notices. The archive expires after seven days. When it expires, retain the recorded evidence and rebuild from the reviewed SHA only when the use case requires fresh bytes.
 
 Phase 1 must exercise this procedure on the first packaging-relevant change and verify the downloadable artifact's bundled source SHA. The existing job uses pinned submodules and read-only repository permissions. It requires no retained signing, Firebase or upstream credentials.
 
+
 ## Phase 1C application pointer checkout
 
-Use the exact-commit **MouseSupremacy development APK** with `com.pokedaisy.app.dev`, a verified x86_64 library on the WSA target, and the [ROM-free dev library bootstrap](TESTING.md#rom-free-launch-and-evidence). Complete the [pre-launch save-isolation gate](#pre-launch-save-isolation-gate) before opening a ROM. Use only a disposable device or approved disposable dev install. A signer conflict requires a clean disposable target.
+Use the corrected exact-commit [development APK](#exact-commit-development-apks) on an approved disposable WSA installation where the official package is present. Check the archive digest, `build-info.txt`, APK SHA-256, embedded source, x86_64 library and signer before install. Use a fresh disposable dev installation if the CI signer differs. Leave both existing packages and their data alone on a signer conflict.
 
-1. Verify the archive against the Actions digest and its `build-info.txt` source, package and signer against the downloaded APK. Check `SHA256SUMS` and both native ABI entries. Start the empty dev library and confirm it appears. Keep the official app and data outside this procedure.
-2. After the save gate passes, select the verified disposable copy from the dev library. To opt in before entering the game, choose exactly one marker in the dev app's private `files` directory. Use `ms_pointer_wsa` for the qualified WSA translation, `ms_pointer_android` for conventional mouse only, or `ms_pointer_touch` for enhanced direct-contact observation plus conventional mouse. Existing upstream dispatch stays active in all profiles.
+1. **Identify the installed build.** From the root of this fork, set the local verified APK path and the APK digest recorded from its artifact. Select the exact disposable serial with `adb devices -l`. Run this once while deliberately retaining the older disposable dev install. Expect **Installed dev APK SHA-256 mismatch** and zero launches. On the approved disposable target with the corrected APK installed, repeat the same command. Expect the matching digest and two separate packages with dev `run-as` available. The command reads the installed `base.apk` via `pm path` and hashes it on the selected Android device. An ambiguous path, digest mismatch, unavailable app UID or changed installation stops checkout.
 
    ```powershell
-   # $pdaAdb, $pdaTarget and $pdaPackage come from the ROM-free bootstrap.
-   & $pdaAdb -s $pdaTarget shell run-as $pdaPackage mkdir -p files
-   & $pdaAdb -s $pdaTarget shell run-as $pdaPackage touch files/ms_pointer_wsa
-   # Enter the already verified disposable game from the dev library.
-   $pdaPid = (& $pdaAdb -s $pdaTarget shell pidof $pdaPackage | Out-String).Trim()
-   if ($pdaPid -notmatch '^\d+$') { throw 'Dev process unavailable' }
-   & $pdaAdb -s $pdaTarget logcat -d --pid=$pdaPid -s MsPointer:I
+   $pdaAdb = 'C:\platform-tools\adb.exe'
+   & $pdaAdb devices -l
+   $pdaTarget = Read-Host 'Exact approved disposable WSA serial'
+   $pdaApk = Read-Host 'Local verified pokedaisy-dev.apk path'
+   $pdaHash = Read-Host 'Verified APK SHA-256 from this artifact'
+   $pdaPackage = 'com.pokedaisy.app.dev'
+   & .\tools\mousesupremacy\Confirm-InstalledDevApk.ps1 -AdbPath $pdaAdb -Serial $pdaTarget -ApkPath $pdaApk -ExpectedSha256 $pdaHash
    ```
 
-3. In the disposable game, start with ORIGINAL fit or STRETCH, a docked companion and no over-game HUD or virtual controls for calibration. Hover before pressing. In each of two companion widths, sample the visible top-left, bottom-right and adjacent letterbox or clipping boundary. Capture aligned screenshots if opted in. Expect native GBA coordinates only inside the eligible 240×160 picture. Press and release on the game and companion separately. Try crossing into chrome, resizing or changing focus during a press, then do a fresh press. Repeat with a HUD, dismissible companion overlay or touch controls visible. Confirm the upstream surface responds normally.
-4. Record `activity`, `view`, `layout`, `normalized` and `invalidate` records with the marked physical host action and visible result. `view ... activity=false` or `channel=native-pad` helps identify delivery outside the Activity dispatcher. Keep device identifiers and full logs private. Draw IDs represent the GL quad submitted to the surface, so use an aligned image for compositor-level proof. A trace alone provides no native cursor-latency or applied-input measurement. There is no MouseSupremacy key producer in this build.
-5. Capture lasts at most 90 seconds or 768 records per game Activity, with coalesced motion. Close the disposable game to leave the trace session and remove the marker with `adb -s <target> shell run-as com.pokedaisy.app.dev rm files/ms_pointer_wsa`. Stop with the specific failed prerequisite if the package, isolation, layout or host cannot be verified. The [FireRed experiment](test-scenarios/firered-battle.md#phase-1-feasibility-experiment) requires exact ROM identity, ready-state and applied-frame evidence beyond this checkout.
+2. **Boot and isolate.** After the positive match, open only the [empty dev library](TESTING.md#rom-free-launch-and-evidence) with the same ADB binary and serial. The launcher should appear and `pidof` should identify the dev process. Then [verify the copied ROM, effective save and backup roots](#pre-launch-save-isolation-gate). Use the deliberate shared-root case without opening or importing that entry, restore the isolated settings, then do a disposable positive save write and check the original-side sentinel stays identical.
+3. **Activate one profile in a fresh dev process.** Close the disposable game cleanly first. Ensure zero pre-existing files named `ms_pointer_wsa`, `ms_pointer_android` or `ms_pointer_touch` in dev `files`. If another trace session owns a marker, use its own cleanup procedure before proceeding. Restart only `com.pokedaisy.app.dev`; use `ms_pointer_wsa` for the qualified WSA translation, `ms_pointer_android` for conventional mouse, or `ms_pointer_touch` for opt-in direct-touch observation. Every ADB command must use the verified `-s` target. In the fresh process, verify one matching `start schema=1 profile=WSA mode=observe-only` row before scoring WSA input.
+
+   ```powershell
+   & $pdaAdb -s $pdaTarget shell am force-stop $pdaPackage
+   if ($LASTEXITCODE) { throw 'Could not restart the disposable dev process' }
+   & $pdaAdb -s $pdaTarget shell run-as $pdaPackage mkdir -p files
+   if ($LASTEXITCODE) { throw 'Could not access dev files' }
+   $pdaMarkers = @('ms_pointer_wsa', 'ms_pointer_android', 'ms_pointer_touch')
+   $pdaFiles = @(& $pdaAdb -s $pdaTarget shell run-as $pdaPackage ls -a files)
+   if ($LASTEXITCODE -or @($pdaFiles | Where-Object { $_.Trim() -cin $pdaMarkers }).Count) { throw 'Existing trace marker or inaccessible dev files' }
+   & $pdaAdb -s $pdaTarget shell run-as $pdaPackage touch files/ms_pointer_wsa
+   if ($LASTEXITCODE) { throw 'Could not activate the WSA profile' }
+   & $pdaAdb -s $pdaTarget shell am start -W -n "$pdaPackage/com.pokedaisy.app.LibraryActivity"
+   if ($LASTEXITCODE) { throw 'Could not open the dev library' }
+   # Open only the verified disposable ROM from the dev library.
+   $pdaPid = (& $pdaAdb -s $pdaTarget shell pidof $pdaPackage | Out-String).Trim()
+   if ($LASTEXITCODE -or $pdaPid -notmatch '^\d+$') { throw 'Dev process unavailable' }
+   $pdaTrace = @(& $pdaAdb -s $pdaTarget logcat -d --pid=$pdaPid -s MsPointer:I)
+   $pdaStarts = @($pdaTrace | Select-String 'start schema=1 profile=')
+   if ($LASTEXITCODE -or $pdaStarts.Count -ne 1 -or $pdaStarts[0] -notmatch 'profile=WSA mode=observe-only') {
+       throw 'WSA profile not confirmed for the fresh dev process'
+   }
+   ```
+
+4. **Score two widths.** Start in ORIGINAL fit or STRETCH with a docked companion and no HUD or controls over the game. Hover and sample the picture and letterbox boundary at each width. Mark a game press, a companion press, a resize or focus interruption, and a fresh successful pair. Hold a pointer press, use a manual controller trigger or direction, then release the old press. Expect one cancellation and zero old `observed-release` records, followed by valid fresh recovery. Repeat briefly with a higher owner or touch pad visible and check normal upstream response. Save the PID-scoped trace and opted-in aligned screenshots without clearing system logs. Draw IDs describe the submitted GL quad. Use aligned screenshots for visible presentation.
+5. **Clean up.** Close the disposable game cleanly even if the trace fails. Remove the marker created for this run using `adb -s <target> shell run-as com.pokedaisy.app.dev rm files/ms_pointer_wsa`, then check the private `files` listing with the same target and verify it is absent. Keep the device serial and raw paths local. The trace expires after 90 seconds or 768 records per game Activity. The [FireRed experiment](test-scenarios/firered-battle.md#phase-1-feasibility-experiment) follows this checkout and requires exact ROM identity, readiness and applied-frame evidence.
+
+A lost conventional terminal can consume the first newer same-stream press while the old route retires. Try a fresh press after that cancellation. A missing buttonless terminal on another alias can withhold the GAME region until a real terminal or lifecycle cleanup. Recovery uses actual events and lifecycle boundaries. Gameplay input remains off.
 
 ## Package, signing and save isolation
 

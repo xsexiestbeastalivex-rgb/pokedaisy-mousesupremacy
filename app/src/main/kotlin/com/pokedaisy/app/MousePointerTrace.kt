@@ -80,6 +80,10 @@ internal class MousePointerTrace private constructor(
 
     private fun active() = remaining > 0 && SystemClock.uptimeMillis() <= deadline
 
+    fun controllerMotion(event: MotionEvent, triggers: ControllerTriggers) {
+        if (active() && triggers.hasManualInput(GbaInput.motionBits(event))) invalidate("upstream-controller")
+    }
+
     fun deviceChanged(id: Int) {
         invalidate("device-change")
         devices.remove(id)?.let { input.detach(it.slot()) }
@@ -149,22 +153,26 @@ internal class MousePointerTrace private constructor(
         val sample = PointerState.Sample(action, region, x, y, event.downTime, event.eventTime,
             event.getPointerId(0), event.pointerCount, event.actionButton, event.buttonState, focused, event.historySize > 0)
         val device = devices.get(event.deviceId, { "android" }, input::attach)
-        val normalized = input.observe(sample, device.slot(), event.source, tool, profile == Profile.WSA, slop)
+        val cancellation = if (action == Action.CANCEL) conventionalCancellation(device, sample, event.source, tool) else null
+        // A stale or known unrelated CANCEL on the same device ID must not retire its mouse normalizer.
+        val slot = if (action == Action.CANCEL && route.ownsConventional(device.alias())) 0 else device.slot()
+        val normalized = input.observe(sample, slot, event.source, tool, profile == Profile.WSA, slop)
         val touch = if (profile == Profile.DIRECT) direct.observe(device.alias(), sample, finger, pointer && !finger, slop) else null
-        val edge = normalized.result() ?: touch
-        val source = normalized.interpretation() ?: if (touch != null) "direct-touch" else "upstream"
+        val routeTouch = touch?.takeUnless { it.cancelled() != 0 && route.conventionalHeld() }
+        val edge = normalized.result() ?: routeTouch
+        val source = normalized.interpretation() ?: if (routeTouch != null) "direct-touch" else "upstream"
         if (source == PointerNormalizer.STANDARD && input.hasDirectContact() && hit.owner() == PointerLayout.Owner.GAME) {
             hit = PointerLayout.Hit(PointerLayout.Owner.UNOWNED, null)
         }
-        val interrupted = when {
-            normalized.displaced() != null -> route.cancel(normalized.displaced().phase())
-            touch != null && touch.cancelled() != 0 -> route.cancel(touch.phase())
+        val interrupted = cancellation ?: when {
+            normalized.displaced() != null && !route.conventionalHeld() -> route.cancel(normalized.displaced().phase())
+            routeTouch != null && routeTouch.cancelled() != 0 -> route.cancel(routeTouch.phase())
             route.held() && source == "upstream" && pointer && action == Action.DOWN &&
                 sample.hasContactTime() -> route.cancelCompetingContact(event.downTime)
             else -> null
         }
         val routed = if (interrupted == null && (edge != null || normalized.interpretation() != null)) {
-            route.observe(device.alias(), sample, edge, hit, slop)
+            route.observe(device.alias(), sample, edge, hit, slop, source == PointerNormalizer.STANDARD)
         } else null
         val ordinaryMove = action == Action.MOVE || action == Action.HOVER_MOVE
         if (ordinaryMove && interrupted == null && routed == null && (edge?.cancelled() ?: 0) == 0
@@ -181,6 +189,28 @@ internal class MousePointerTrace private constructor(
             "wheelX=${event.getAxisValue(MotionEvent.AXIS_HSCROLL)} wheelY=${event.getAxisValue(MotionEvent.AXIS_VSCROLL)} " +
             "owner=${if (layout == null) "unavailable" else hit.owner()} pixel=${hit.pixel()} route=${routed ?: interrupted} mouseGameplayKeys=0")
         return raw
+    }
+
+    private fun conventionalCancellation(
+        device: DeviceAliases.Device, sample: PointerState.Sample, source: Int, tool: Int,
+    ): PointerRoute.Outcome? {
+        val origin = when {
+            source and InputDevice.SOURCE_MOUSE == InputDevice.SOURCE_MOUSE && tool == MotionEvent.TOOL_TYPE_MOUSE ->
+                PointerRoute.CancelOrigin.CONVENTIONAL
+            source == InputDevice.SOURCE_UNKNOWN && tool == MotionEvent.TOOL_TYPE_UNKNOWN ->
+                PointerRoute.CancelOrigin.UNIDENTIFIED
+            else -> PointerRoute.CancelOrigin.OTHER
+        }
+        val alias = route.conventionalCancelOwner(device.alias(), sample, origin, SystemClock.uptimeMillis())
+        if (alias == 0L) return null
+        val reason = if (origin == PointerRoute.CancelOrigin.UNIDENTIFIED) "unidentified-cancel" else "android-cancel"
+        for (slot in 1..SLOTS) {
+            if (devices.at(slot)?.alias() == alias) {
+                cancellation(alias, input.invalidate(slot, sample.eventTime(), reason, false))
+                break
+            }
+        }
+        return route.cancel(reason)
     }
 
     private fun updateLayout(scene: Scene?) {

@@ -8,11 +8,34 @@ import com.pokedaisy.mousesupremacy.pointer.PointerState.Sample;
 /** One latched observation at a time. Outcomes have no emulator input sink. */
 public final class PointerRoute {
     public record Outcome(long gesture, Owner owner, String disposition) {}
-    private record Press(long id, long alias, long contact, int button, Hit hit, float x, float y) {}
+    public enum CancelOrigin { CONVENTIONAL, UNIDENTIFIED, OTHER }
+    private record Press(long id, long alias, long contact, int button, Hit hit, float x, float y,
+                         boolean conventional) {}
     private long sequence;
     private Press press;
 
     public boolean held() { return press != null; }
+
+    public boolean conventionalHeld() {
+        return press != null && press.conventional();
+    }
+
+    public boolean ownsConventional(long alias) {
+        return conventionalHeld() && press.alias() == alias;
+    }
+
+    /** Select the one stream to fence before the shared normalizer sees an Android CANCEL. */
+    public long conventionalCancelOwner(long alias, Sample sample, CancelOrigin origin, long receiptTime) {
+        if (press == null || !press.conventional() || sample.action() != PointerState.Action.CANCEL
+                || !sample.focused() || sample.eventTime() < press.contact() || sample.eventTime() > receiptTime
+                || (sample.downTime() > 0 && sample.downTime() != press.contact())) return 0;
+        if (origin == CancelOrigin.CONVENTIONAL) return ownsConventional(alias) ? alias : 0;
+        if (origin == CancelOrigin.UNIDENTIFIED
+                && (ownsConventional(alias) || (sample.hasPosition() && !PointerState.OUTSIDE.equals(sample.hit())))) {
+            return press.alias();
+        }
+        return 0;
+    }
 
     public Outcome cancelCompetingContact(long downTime) {
         return press != null && downTime >= press.contact() ? cancel("upstream-touch") : null;
@@ -25,7 +48,7 @@ public final class PointerRoute {
         return result;
     }
 
-    public Outcome observe(long alias, Sample sample, Result edge, Hit hit, float slop) {
+    public Outcome observe(long alias, Sample sample, Result edge, Hit hit, float slop, boolean conventional) {
         if (press != null) {
             if (sample.isContact() && sample.downTime() > 0 && sample.downTime() < press.contact()) return null;
             if (sample.eventTime() > 0 && sample.eventTime() < press.contact()) return null;
@@ -49,13 +72,13 @@ public final class PointerRoute {
             }
             return null;
         }
-        return edge != null && edge.pressed() != 0 ? begin(alias, sample, edge, hit) : null;
+        return edge != null && edge.pressed() != 0 ? begin(alias, sample, edge, hit, conventional) : null;
     }
 
-    private Outcome begin(long alias, Sample sample, Result edge, Hit hit) {
+    private Outcome begin(long alias, Sample sample, Result edge, Hit hit, boolean conventional) {
         if (hit.owner() == Owner.OUTSIDE || hit.owner() == Owner.UNOWNED || alias == 0
                 || !sample.hasContactTime() || sample.batched() || Integer.bitCount(edge.pressed()) != 1) return null;
-        press = new Press(++sequence, alias, sample.downTime(), edge.pressed(), hit, sample.x(), sample.y());
+        press = new Press(++sequence, alias, sample.downTime(), edge.pressed(), hit, sample.x(), sample.y(), conventional);
         return new Outcome(press.id(), hit.owner(), "observed-press");
     }
 }

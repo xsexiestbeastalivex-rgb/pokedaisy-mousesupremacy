@@ -22,9 +22,11 @@ public final class ApplicationPointerTest {
         projection();
         ownership();
         ordinaryTouch();
+        conventionalCancellation();
+        staleDirectCancellation();
         translatedTransitions();
         System.out.println("Application pointer tests passed: 2 layout widths, 4 ownership boundary classes, "
-                + "direct-touch gating and cancellation, and 4 translated callback orders.");
+                + "direct-touch gating, 11 conventional cancel cases, and 4 translated callback orders.");
     }
 
     private static PointerLayout layout(float companionX, boolean modal, boolean hud, boolean available) {
@@ -106,6 +108,58 @@ public final class ApplicationPointerTest {
         expect(null, harness.mouse(sample(UP, 100, 100, 37, 38, 0, 0)));
     }
 
+    private static void conventionalCancellation() {
+        var scene = layout(630, false, false, true);
+        record Case(int slot, int source, int tool, long down, long event, float x, boolean retires) {}
+        var cases = List.of(
+                new Case(2, 0, 0, 0, 605, 100, true),           // independent review sequence
+                new Case(1, 0, 0, 0, 605, 100, true),           // same alias without contact time
+                new Case(1, MOUSE, 3, 600, 605, 100, true),     // identified owner
+                new Case(2, 0, 0, 600, 605, 100, true),         // matching time, missing identity
+                new Case(1, 0, 0, 0, 599, 100, false),         // stale on the owning slot
+                new Case(1, MOUSE, 3, 590, 605, 100, false),    // prior generation on the owning slot
+                new Case(1, FINGER, 1, 0, 605, 100, false),    // unrelated tool on the owning slot
+                new Case(2, MOUSE, 3, 600, 605, 100, false),   // known separate mouse, same down time
+                new Case(2, 0, 0, 601, 605, 100, false),       // different identifiable generation
+                new Case(2, 0, 0, 0, 605, -1, false),         // unknown stream outside window
+                new Case(2, 0, 0, 0, 615, 100, false)         // future callback cannot fence a contact
+        );
+        for (var c : cases) {
+            var harness = new Harness(scene);
+            var press = harness.mouse(sample(DOWN, 100, 100, 600, 600, 1, 0));
+            var cancel = new Sample(CANCEL, c.x() < 0 ? "outside" : "window", c.x(), 100, c.down(),
+                    c.event(), 0, 1, 0, 0, true, false);
+            var result = harness.cancel(c.slot(), c.source(), c.tool(), cancel, 610);
+            if (c.retires()) expect(press.gesture(), result.gesture()); else expect(null, result);
+            expect(null, harness.cancel(c.slot(), c.source(), c.tool(), cancel, 610));
+            if (c.retires()) {
+                expect(null, harness.mouse(sample(DOWN, 100, 100, 600, 600, 1, 0)));
+                expect(null, harness.mouse(sample(DOWN, 100, 100, 605, 605, 1, 0)));
+            }
+            var ending = harness.mouse(sample(UP, 100, 100, 600, 610, 0, 0));
+            if (c.retires()) expect(null, ending); else expect("observed-release", ending.disposition());
+            expect(null, harness.mouse(sample(BUTTON_RELEASE, 100, 100, 600, 611, 0, 1)));
+            var fresh = harness.mouse(sample(DOWN, 100, 100, 620, 620, 1, 0));
+            expect(GAME, fresh.owner());
+            // A late duplicate cancellation cannot retire a newer legitimate owner.
+            expect(null, harness.cancel(c.slot(), c.source(), c.tool(), cancel, 622));
+            expect(fresh.gesture(), harness.mouse(sample(UP, 100, 100, 620, 622, 0, 0)).gesture());
+        }
+    }
+
+    private static void staleDirectCancellation() {
+        var harness = new Harness(layout(630, false, false, true));
+        var touch = new DirectTouch();
+        var start = harness.mouse(sample(DOWN, 100, 100, 600, 600, 1, 0));
+        var delayed = sample(DOWN, 100, 100, 590, 590, 0, 0);
+        var directDown = touch.observe(2, delayed, true, false, SLOP);
+        expect(null, harness.route.observe(2, delayed, directDown, harness.layout.hit(100, 100), SLOP, false));
+        var directCancel = touch.observe(2, sample(CANCEL, 100, 100, 590, 605, 0, 0), true, false, SLOP);
+        expect(DirectTouch.CONTACT, directCancel.cancelled());
+        expect(true, harness.route.conventionalHeld());
+        expect(start.gesture(), harness.mouse(sample(UP, 100, 100, 600, 610, 0, 0)).gesture());
+    }
+
     private static void ordinaryTouch() {
         var down = sample(DOWN, 100, 100, 50, 50, 0, 0);
         var up = sample(UP, 100, 100, 50, 52, 0, 0);
@@ -169,11 +223,25 @@ public final class ApplicationPointerTest {
         Harness(PointerLayout layout) { this.layout = layout; input.attach(1); input.attach(2); }
 
         PointerRoute.Outcome mouse(Sample s) {
-            return route.observe(1, s, input.observe(s, 1, MOUSE, 3, false, SLOP).result(), layout.hit(s.x(), s.y()), SLOP);
+            return route.observe(1, s, input.observe(s, 1, MOUSE, 3, false, SLOP).result(), layout.hit(s.x(), s.y()), SLOP, true);
+        }
+
+        PointerRoute.Outcome cancel(int slot, int source, int tool, Sample sample, long receipt) {
+            var origin = source == MOUSE && tool == 3 ? PointerRoute.CancelOrigin.CONVENTIONAL
+                    : source == 0 && tool == 0 ? PointerRoute.CancelOrigin.UNIDENTIFIED : PointerRoute.CancelOrigin.OTHER;
+            long owner = route.conventionalCancelOwner(slot, sample, origin, receipt);
+            if (owner != 0) {
+                input.invalidate((int)owner, sample.eventTime(), "cancelled", false);
+                return route.cancel("cancelled");
+            }
+            int acceptedSlot = route.ownsConventional(slot) ? 0 : slot;
+            var decision = input.observe(sample, acceptedSlot, source, tool, false, SLOP);
+            if (decision.result() == null && decision.interpretation() == null) return null;
+            return route.observe(slot, sample, decision.result(), layout.hit(sample.x(), sample.y()), SLOP, false);
         }
 
         PointerRoute.Outcome wsa(Sample s) {
-            return route.observe(1, s, input.observe(s, 1, FINGER, 1, true, SLOP).result(), layout.hit(s.x(), s.y()), SLOP);
+            return route.observe(1, s, input.observe(s, 1, FINGER, 1, true, SLOP).result(), layout.hit(s.x(), s.y()), SLOP, false);
         }
     }
 

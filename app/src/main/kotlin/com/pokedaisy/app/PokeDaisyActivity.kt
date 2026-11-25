@@ -428,7 +428,10 @@ class PokeDaisyActivity : Activity() {
         // The stick still tilted when it closes (the ring is aimed with it): kept from the game until it's let go, or the
         // player rides off - and a bike at full speed ignores the SELECT that BIKE / ROD press.
         q.onClose = { if (quickStickOff) quickStickHold = true }
-        q.onAimMove = { if (::view.isInitialized) view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK) }
+        q.onAimMove = {
+            mousePointerTrace?.invalidate("upstream-quick-aim")
+            if (::view.isInitialized) view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+        }
         q.onFly = { mapsec, targets -> quickActions.flyTo(mapsec, targets) }
     }
     private val quickShown = androidx.compose.runtime.mutableStateOf(com.pokedaisy.app.companion.QuickAction.entries.toSet())
@@ -5776,14 +5779,7 @@ class PokeDaisyActivity : Activity() {
 
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
         val trace = mousePointerTrace ?: return dispatchUpstreamMotion(event)
-        if (event.isFromSource(InputDevice.SOURCE_JOYSTICK)) {
-            if (GbaInput.motionBits(event) != 0 ||
-                event.getAxisValue(MotionEvent.AXIS_LTRIGGER) > 0.5f ||
-                event.getAxisValue(MotionEvent.AXIS_RTRIGGER) > 0.5f ||
-                event.getAxisValue(MotionEvent.AXIS_BRAKE) > 0.5f ||
-                event.getAxisValue(MotionEvent.AXIS_GAS) > 0.5f) trace.invalidate("upstream-controller")
-            return dispatchUpstreamMotion(event)
-        }
+        if (event.isFromSource(InputDevice.SOURCE_JOYSTICK)) return dispatchUpstreamMotion(event)
         return trace.dispatch(event, "generic", hasWindowFocus(), ::mousePointerScene) { dispatchUpstreamMotion(event) }
     }
 
@@ -5839,28 +5835,22 @@ class PokeDaisyActivity : Activity() {
     }
 
     private fun dispatchUpstreamMotion(event: MotionEvent): Boolean {
-        if (event.isFromSource(InputDevice.SOURCE_JOYSTICK) && keyCapture.onTriggers(
-                maxOf(event.getAxisValue(MotionEvent.AXIS_LTRIGGER), event.getAxisValue(MotionEvent.AXIS_BRAKE)),
-                maxOf(event.getAxisValue(MotionEvent.AXIS_RTRIGGER), event.getAxisValue(MotionEvent.AXIS_GAS), event.getAxisValue(MotionEvent.AXIS_THROTTLE)),
-            )
-        ) return true
-        if (event.isFromSource(InputDevice.SOURCE_JOYSTICK) && onGenericMotionEvent(event)) return true
+        if (event.isFromSource(InputDevice.SOURCE_JOYSTICK)) {
+            val triggers = ControllerTriggers.read(event::getAxisValue)
+            mousePointerTrace?.controllerMotion(event, triggers)
+            if (keyCapture.onTriggers(triggers.left, triggers.right)) return true
+            if (onGameMotion(event, triggers)) return true
+        }
         return super.dispatchGenericMotionEvent(event)
     }
 
-    override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+    override fun onGenericMotionEvent(event: MotionEvent): Boolean =
+        onGameMotion(event, ControllerTriggers.read(event::getAxisValue))
+
+    private fun onGameMotion(event: MotionEvent, triggers: ControllerTriggers): Boolean {
         if (::engine.isInitialized) {
-            val rt = maxOf(
-                event.getAxisValue(MotionEvent.AXIS_RTRIGGER),
-                event.getAxisValue(MotionEvent.AXIS_GAS),
-                event.getAxisValue(MotionEvent.AXIS_THROTTLE),
-            )
-            val lt = maxOf(
-                event.getAxisValue(MotionEvent.AXIS_LTRIGGER),
-                event.getAxisValue(MotionEvent.AXIS_BRAKE),
-            )
-            if ((rt > 0.5f) != rtDown) { rtDown = rt > 0.5f; triggerKey(KeyEvent.KEYCODE_BUTTON_R2, rtDown) }
-            if ((lt > 0.5f) != ltDown) { ltDown = lt > 0.5f; triggerKey(KeyEvent.KEYCODE_BUTTON_L2, ltDown) }
+            if (triggers.rightDown != rtDown) { rtDown = triggers.rightDown; triggerKey(KeyEvent.KEYCODE_BUTTON_R2, rtDown) }
+            if (triggers.leftDown != ltDown) { ltDown = triggers.leftDown; triggerKey(KeyEvent.KEYCODE_BUTTON_L2, ltDown) }
         }
         if (::sidePanel.isInitialized && sidePanel.windowOpen && menuMotion(event)) return true
         if (bottomFocus.value && bottomMotion(event)) return true

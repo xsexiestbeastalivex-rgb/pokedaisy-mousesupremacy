@@ -5,6 +5,8 @@ on:
     branches: ['**']
     paths:
       - 'tools/wsa-pointer-probe/**'
+      - 'tools/mousesupremacy/**'
+      - 'pointer-input/**'
       - '.github/workflows/wsa-pointer-probe.yml'
   workflow_dispatch:
     inputs:
@@ -36,7 +38,8 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+      - if: github.event_name == 'workflow_dispatch'
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
         with:
           packages: 'platforms;android-34 build-tools;35.0.0'
           log-accepted-android-sdk-licenses: false
@@ -47,8 +50,11 @@ jobs:
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
           tools/wsa-pointer-probe/test.sh
           pwsh -NoProfile -File tools/wsa-pointer-probe/test/Test-Runner.ps1
-      - run: tools/wsa-pointer-probe/build.sh "$RUNNER_TEMP/pointer-probe"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+          pwsh -NoProfile -File tools/mousesupremacy/Test-ConfirmInstalledDevApk.ps1
+      - if: github.event_name == 'workflow_dispatch'
+        run: tools/wsa-pointer-probe/build.sh "$RUNNER_TEMP/pointer-probe"
+      - if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: pointer-probe-${{ steps.source.outputs.sha }}
           path: ${{ runner.temp }}/pointer-probe
