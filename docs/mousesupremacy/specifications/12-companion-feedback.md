@@ -23,7 +23,7 @@ Aim to present feedback by the next displayed frame where practical. Measure tai
 ## Acceptance and tests
 
 - A hovered visible option follows the real native cursor with no first click or switch to a replacement battle screen.
-- Moving across a docked, unlocked, animated or floating companion never activates the game beneath it. Test overlay dismissal, drag handles, breakpoints, Mouse Mode off and DS touch.
+- Moving across a docked, unlocked, animated or floating companion never activates the game beneath it. Test outside-dismiss for the unlocked overlay, drag handles, floating windows, breakpoints, Mouse Mode off and DS touch. Toggle companion battle buttons in both directions while keeping the native battle display present and usable.
 - Test resolved rectangles and lifecycle with fixtures, presentation against screenshots, and actual input ownership on Android plus WSA.
 
 ## Deferred and decisions

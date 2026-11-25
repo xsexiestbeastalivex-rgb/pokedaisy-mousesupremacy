@@ -12,9 +12,9 @@ Let developers and agents reproduce failures with structured state, inputs, scre
 
 ## Contract
 
-Expose a versioned observation envelope with build, ROM identity, emulator frame, session/context/geometry markers, known or unavailable fields and recent bounded action outcomes. Capture pointer input through the actual frontend and allow direct intents only in lower-level tests. Store scenario setup and expected transitions separately from user data. Support screenshot and replay by frame or known condition. Start from ADB and existing scripts. Add CLI commands where repeated manual assembly limits reproducibility.
+Expose a versioned observation envelope with build, ROM identity, emulator frame, session/context/geometry markers, known or unavailable fields and recent bounded action outcomes. Capture pointer input through the actual frontend when available. Use separate, labeled frontend pointer replay and headless emulator key replay, as defined in the [safe bootstrap](../TESTING.md#phase-1-safe-bootstrap). Allow direct intents only in lower-level tests. Store scenario setup and expected transitions separately from user data. Support screenshot and replay by frame or known condition. Start from ADB and existing scripts. Add CLI commands where repeated manual assembly limits reproducibility.
 
-Diagnostic states are inactive → locally enabled in a development build → capturing → stopped/exported. Bound records and timings. Reject unknown schema versions and unsupported scenario prerequisites. Record separate skip reasons. Keep screenshots opt-in and omit private paths, inputs unrelated to the session, ROMs, saves, credentials and whole memory dumps. Restrict commands to the attached development session and remove the interface from production.
+Diagnostic states are inactive → locally enabled in a development build → capturing → stopped/exported. Bound records and timings. Reject unknown schema versions and unsupported scenario prerequisites. Record separate skip reasons. Keep screenshots opt-in and omit private paths, serials, game data, inputs unrelated to the session, ROMs, saves, credentials and whole memory dumps. Review the exact export before sharing. Restrict commands to the attached development session and remove the interface from production.
 
 ## Performance and compatibility
 
@@ -28,4 +28,4 @@ Capture asynchronously with drop accounting and a bounded ring buffer. Avoid per
 
 ## Deferred and decisions
 
-A common CLI wrapper, schema, sensor fields and replay orchestration land when individual proofs need them. Defer service/MCP integration until a local tool is demonstrably insufficient.
+Phase 1 needs only the bounded record and runnable minimum in the bootstrap. Scenario-manifest automation, additional diagnostic UI and richer performance tooling require recurring or measured need. Defer service/MCP integration until a local tool is demonstrably insufficient.

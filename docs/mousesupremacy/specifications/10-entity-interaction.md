@@ -27,7 +27,7 @@ Requires systems 02 ownership, 03 observation, 04 projection, 05 hit detection, 
 ## Acceptance and tests
 
 1. Hover highlights an eligible NPC without moving the player or pressing A. Click performs a valid path, stops adjacent, turns toward the NPC and opens the original dialogue once. Confirm with pointer, tile, facing, A pulse and dialogue records in one trace.
-2. An NPC already adjacent needs only verified facing and one A pulse. A moving NPC is tracked by identity, with old adjacency revoked. Record actual native motion and cancel when the target is lost or the path becomes invalid.
+2. An NPC already adjacent needs only verified facing and one A pulse. Compare player tile before and after the ordinary turn and require unchanged valid contact before A. A moving NPC is tracked by identity, with old adjacency revoked. Record actual native motion and cancel when the target is lost or the path becomes invalid.
 3. Inaccessible positions, decorative or unspawned actors, overlapping uncertain objects, map change, manual input and companion clicks cannot trigger unintended interaction. Test stale and ambiguous cases with synthetic traces and at least one negative frontend/gameplay scenario.
 4. No scene resumes old navigation after dialogue. Preserve normal keyboard/controller interaction with Mouse Mode disabled or interrupted.
 

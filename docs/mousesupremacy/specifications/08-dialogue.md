@@ -4,7 +4,7 @@
 
 ## Purpose, scope and non-goals
 
-Enable mouse advancement of one verified ordinary field dialogue as part of the input foundation. Preserve the game's text speed, waits and branching. Extend to yes/no and other recognized prompts only when their active options and cursor are available. Defer battle messages, scripted input shortcuts and text entry to their relevant capability work.
+Enable mouse advancement of one verified ordinary field dialogue as part of the input foundation. Preserve the game's text speed, waits and branching. Extend to yes/no and other recognized prompts only when their active options and cursor are available. System 08 owns ordinary field dialogue and reusable acknowledgment/choice rules. System 06 owns battle-specific context and option legality, including battle dialogue and prompts. System 07 owns field menu context and reuses these rules when it opens a verified prompt. Scripted shortcuts and text entry require their own capability.
 
 ## Upstream evidence
 
@@ -16,7 +16,7 @@ Enable mouse advancement of one verified ordinary field dialogue as part of the 
 
 The observation adapter offers a profile-backed dialogue kind, visible box geometry, prompt identity, input readiness and options when known. Publish those fields with the game/session epoch and game-frame stamp. The router resolves a click within the visible, unobscured original text area and revalidates the same dialogue identity and readiness at execution. A verified waiting ordinary message can receive one original A pulse per intentional left-click. While printing, apply the same rule only if profile evidence establishes the original button action and the spec is extended. Right-click uses B only for a prompt whose cancellation has been verified. Hover alone advances nothing.
 
-State moves from unknown or inactive to printing, waiting for advancement, choice open, or leaving. An accepted advance enters pending acknowledgment until the next relevant message state or timeout. Never auto-repeat or queue clicks across a change, including a prompt that opens in the same box. For choices, selection and confirmation are separate, with the same expected-target check as native menus. An unavailable readiness signal, text obscured by companion or focus change refuses input. A battle, cutscene, script, warp, menu or dialogue that interrupts movement cancels that navigation. Closing the dialogue does not restore the previous destination.
+State moves from unknown or inactive to printing, waiting for advancement, choice open, or leaving. An accepted advance enters pending acknowledgment until one observed page/choice identity transition or timeout. Require a new press gesture even if the same box remains on screen with new text or opens a prompt. Never auto-repeat or queue clicks across a change, including a prompt that opens in the same box. For choices, selection and confirmation are separate, with the same expected-target check as native menus. An unavailable readiness signal, text obscured by companion or focus change refuses input. A battle, cutscene, script, warp, menu or dialogue that interrupts movement cancels that navigation. Closing the dialogue does not restore the previous destination.
 
 ## Dependencies, performance and compatibility
 
@@ -27,7 +27,7 @@ Requires systems 02 ownership, 03 observation, 04 projection, 05 hit detection a
 1. A recognized field sign or NPC text, waiting for input, advances one native page after a deliberate click. Verify actual gameplay with scrubbing through frames and an observed A pulse.
 2. Rapid clicks, outside clicks, hover, stale epochs, cutscenes, menu overlays, active printing without a verified binding and unverified yes/no prompts cause no unintended confirmation. Include snapshot unit cases and a real sign-to-next-message scenario.
 3. A click in the companion/HUD cannot affect text behind it. Manual keyboard/controller and native text behavior continue to work with Mouse Mode disabled. Test through frontend routing and game observation.
-4. Dialogue opening cancels active navigation and closing does not restore the old target. Verify in the system 09 and 10 scenarios when available.
+4. Verify a page change and a yes/no prompt change inside the same visible box. Check exactly one acknowledgment per applied A/B, confirm the selected option only, and reject a repeat edge from the previous message or prompt. Dialogue opening cancels active navigation and closing does not restore the old target. Verify in the system 09 and 10 scenarios when available.
 
 ## Deferred work and outstanding decisions
 

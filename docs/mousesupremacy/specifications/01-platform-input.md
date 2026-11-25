@@ -22,8 +22,8 @@ Keep the Android callback path small. It must enqueue or publish in constant wor
 
 ## Acceptance and tests
 
-- An already-focused game shows hover movement before any press, with exit and re-entry logged.
-- Left, right and middle yield at most one edge pair per physical click. Up/down scroll retain signs. Verify focus cancellation while a button is held and preserve touch/controller behavior.
+- Acquire focus without a mouse press in the view. A correlated physical host sequence and guest trace show hover movement before any press, with exit and re-entry logged.
+- Left, right and middle yield at most one edge pair per physical click. Up/down scroll retain signs. Verify focus cancellation while a button is held and preserve touch/controller behavior. An indistinguishable secondary button and Back leaves right-click capability unavailable on that host.
 - Test action normalization and duplicate sequences with synthetic events. Record physical WSA separately from an Android control device or emulator.
 
 ## Deferred and decisions

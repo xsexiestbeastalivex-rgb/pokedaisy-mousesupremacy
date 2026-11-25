@@ -6,7 +6,7 @@ Start with [project status](docs/mousesupremacy/PROJECT_STATUS.md), [requirement
 - Begin with a requirement ID, an approved scope, and reproducible acceptance criteria. Identify platform, ROM fingerprint, build commit and evidence grade. Review unfamiliar ROM layouts and transitions using source plus a suitable scenario.
 - Let the game decide gameplay. Observe read-only state and use normal emulator inputs for MouseSupremacy. Unrecognized, transitioning or stale contexts must produce zero gameplay input. Preserve companion, HUD, zoom, expansion and DS touch.
 - Reuse upstream readers, geometry and frame scheduling. Follow the upstream quick-test policy. Capture real runtime evidence for behavior claims and label source findings, fixtures, mocks, headless runs, Android frontend runs and WSA physical tests separately.
-- Keep ROMs, BIOS files, saves, private traces and secrets out of commits, artifacts and public discussions. Use disposable copies and separate save roots. Review diagnostic bundles before sharing them.
+- Keep ROMs, BIOS files, saves, private traces and secrets out of commits, artifacts and public discussions. Use the [safe test bootstrap](docs/mousesupremacy/TESTING.md#phase-1-safe-bootstrap) and [verify the resolved save destination](docs/mousesupremacy/DEVELOPMENT.md#pre-launch-save-isolation-gate) before opening or editing a ROM's save. Review diagnostic bundles before sharing them.
 - Run the [verification workflow](.agents/skills/verify-mousesupremacy/SKILL.md) and record the outcome, limitations, decisions and next milestone in the relevant repository documents. Use an independent review pass for substantial changes.
 
 The [project index](docs/mousesupremacy/README.md) explains document ownership and the approval workflow.

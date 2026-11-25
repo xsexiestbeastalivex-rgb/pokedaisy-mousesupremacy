@@ -12,9 +12,9 @@ Resolve the displayed original interface into explicit targets such as a battle 
 
 ## Contract
 
-Take a current observation, geometry and profile. Return semantic IDs, valid native-space bounds, enabled/visible state and allowed gestures. A point maps to one eligible target using explicit layer order and half-open bounds. If overlap is ambiguous or a required capability is unknown, resolve no interaction. Identify a scroll region separately from the confirm target. On hover, publish the latest target identity. On click, capture the target with ownership, session, context and geometry generations. Confirm only if the same intent is valid at execution. A disabled slot may show feedback if appropriate, with no confirm action.
+Take a current observation, geometry and profile. Return semantic IDs, valid native-space bounds, enabled/visible state and allowed gestures. A point maps to one eligible target using explicit layer order and half-open bounds. If overlap is ambiguous or a required capability is unknown, resolve no interaction. Identify a scroll region separately from the confirm target. On hover, publish the latest target identity. Use the [gesture admission contract](02-input-ownership.md#gesture-admission). Capture the target on normalized down and admit one intent on matching up, with the same eligible target and associated ownership, session, context and layout epochs. A disabled visible slot may show feedback if appropriate. Its confirm capability is unavailable.
 
-State transitions are no target → eligible hover → invalidated or committed intent. Recompute after occlusion, enabled state, menu or geometry changes. Drop stale click intents during transitions, and require a new click following cancellation. Rectangles in native coordinates and validity predicates belong to the specific adapter when layouts vary.
+State transitions are no target → eligible hover → invalidated or committed intent. Recompute after occlusion, enabled state, menu or geometry changes. Drop stale click intents during transitions, and require a new click following cancellation. A newly shown submenu recomputes hover at a stationary pointer when it is ready. The prior click never activates a submenu entry. Rectangles in native coordinates and validity predicates belong to the specific adapter when layouts vary.
 
 ## Performance and compatibility
 

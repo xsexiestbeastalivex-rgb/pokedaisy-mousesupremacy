@@ -6,7 +6,7 @@
 
 Make the original battle action and move menus mouse-interactive with the PokeDaisy companion available. The first slice targets one single-battle context on unmodified English FireRed USA/Europe rev 1, header `BPRE`, revision byte `1`, whole-ROM SHA-1 `dd5945db9b930750cb39d00c84da8571feebf417`. Use an ordinary wild single battle without tutorial, link or special modes for acceptance. Prove the legal subset before extending it to other battles. BAG and POKéMON are selectable action cells. Their interiors retain original controls in this slice. [ROM fingerprints](../../../app/src/main/kotlin/com/pokedaisy/app/companion/data/Poller.kt#L1082)
 
-The scope excludes cursor RAM writes, hidden/replacement menus, gameplay memory changes, automatic target confirmation, game simulation, move learning, forced switches, evolution and mouse interaction within bag, party and target screens.
+The Phase 3 slice excludes gameplay memory writes, replacement menus, automatic target confirmation and the later battle surfaces. The [product requirements](../REQUIREMENTS.md) track individual battle surfaces through later phases. System 06 owns battle-specific targets, switches, items, catching, move learning/forgetting and evolution. It uses [System 08](08-dialogue.md) for common dialogue and prompt acknowledgment semantics. System 07 owns field menus, including any native summary navigation used by an approved battle adapter.
 
 ## Upstream seams and constraints
 
@@ -16,13 +16,13 @@ The scope excludes cursor RAM writes, hidden/replacement menus, gameplay memory 
 
 ## Interaction and execution
 
-The verified ROM adapter turns an actionable observation into semantic action and move cells with empirically checked native-pixel bounds. Projection maps those bounds through the current game layout, including narrow and resized side-panel windows. Each intent carries the semantic target, originating menu instance, viewport revision and the applicable pointer event identity. The executor owns one bounded mouse intent and emits at most one guarded direction or selection edge at a time. Existing companion commands and game input keep their ownership rules. Mouse Mode is opt-in. Disable game hit targets where the corresponding native controls are hidden or unobservable.
+The verified ROM adapter turns an actionable observation into semantic action and move cells with empirically checked native-pixel bounds. Projection maps those bounds through the current game layout, including narrow and resized side-panel windows. Each intent carries the semantic target, originating menu instance, viewport revision and the applicable pointer event identity. The executor follows [System 02 gesture and final-frame arbitration](02-input-ownership.md#final-frame-commitment). Count only the actual applied mask. A companion reservation appearing after a cursor acknowledgment still vetoes A. Mouse Mode is opt-in. Disable game hit targets where the corresponding native controls are hidden or unobservable.
 
 | State or input | Expected transition |
 | --- | --- |
 | Eligible menu becomes visible | Publish current interactable cells. Wait for verified readiness before sending any emulator key. |
 | Move pointer onto a valid cell | Update hover immediately when practical. Steer with separate ordinary D-pad pulses toward the cell and observe each resulting cursor. Hover emits zero confirmations. Coalesce superseded motion. In the move grid, verify the game's native context data changes with the cursor. |
-| Left-click a valid cell | Latch that cell once. Validate the same menu and target, finish bounded cursor steering if needed, then submit A once only after observing the requested cursor in the same eligible context. On a newer intentional selection or invalidation, cancel the previous pending selection. |
+| Left-click a valid cell | Latch on normalized down and admit on its matching up. Finish bounded steering, observe the requested cursor and an applied release gap, then revalidate readiness, ownership and the same eligible context at the final frame boundary before submitting one A. |
 | Right-click in verified move menu | Cancel pending steering/selection and send one B after context validation. The native action menu should return. An uncovered context submits zero keys. |
 | Cursor stalls or context changes | Release mouse-held bits and drop the intent on timeout, uncertain/blocked state, manual keyboard/controller takeover, pointer exit, focus loss, save-state change, pause, rewind, fast-forward, resize or overlap with another owner. An abandoned click never resumes automatically. |
 
@@ -44,6 +44,6 @@ Handle rapid motion/clicks, missing move slots, animation/fade, stale observatio
 | Back returns from the move menu and releases state | One right-click, one B edge and transition to action menu. An outside hit or a duplicate Android representation of the same click cannot send a key. |
 | Ownership and stale-state guards hold | Synthetic replay of invalidation races and actual Android routing checks for companion resize/click, focus change and keyboard/controller takeover. Test Mouse Mode turned off and exact-identity mismatch. |
 
-Phase 1 must prove physical WSA hover, real display geometry, strict reader readiness, move availability, and ordinary direction/A/B timing before gameplay implementation. [Reproduction scenario](../test-scenarios/firered-battle.md)
+Run the [narrow Phase 1 FireRed experiment](../test-scenarios/firered-battle.md#phase-1-feasibility-experiment) before implementation. The full acceptance table above belongs to Phase 3. [Reproduction scenario](../test-scenarios/firered-battle.md)
 
 Deferred decisions are the final reference subset, approved hover overlay behavior, exact pulse and timeout values, and the path to Emerald and additional contexts. Review requires a recorded baseline and reproducible positive and negative evidence.

@@ -4,9 +4,9 @@ Numbers refer to the [system specifications](specifications/README.md). Build an
 
 | Phase | Deliverable | Dependencies and exit evidence |
 | --- | --- | --- |
-| 0 | Baseline, audit, proposed requirements, workflow and architecture | Pinned source, baseline checks, 13 specifications and draft PR |
-| 1 | ROM-free pointer proof, safe x86_64 dev APK, minimal structured observation and reference battle trace | 01, 03, 04, 11, 13 research. Satisfy the gates below before building the battle feature. |
-| 2 | Mouse Mode, ownership, projection and a narrow dialogue proof | 01–05, 08, 11–13. Exercise manual input, cancellation, real viewport and host routing. |
+| 0 | Baseline, audit, traceable requirements, workflow and architecture | Pinned source, baseline checks, 13 specifications, [F1–F10 disposition](PROJECT_STATUS.md#independent-review-disposition) and owner approval |
+| 1 | Standalone ROM-free WSA pointer probe first. Follow with isolated dev-app routing and the minimal FireRed feasibility trace. | 01, 02–04, 11, 13 research. Satisfy the listed gates before building the battle feature. |
+| 2 | Mouse Mode, ownership and projection, with narrow dialogue as an independent consumer proof | 01–05, 08, 11–13. Exercise manual input, cancellation, real viewport and host routing. Dialogue can proceed independently of the battle slice. |
 | 3 | Native single-battle action and move menus | 02–06, 11–13 and Phase 1 gates. Verify observed readiness, native cursor/context, confirm/back and companion isolation. |
 | 4 | Original non-battle menus | 07, 08, 11, 12. Add per-menu state and scenarios, starting with the first reliable native menu. |
 | 5 | Map-local click-to-walk | 09 plus 02–05 and 11. Verify traversal and interruption on foot with original animation and input. |
@@ -23,10 +23,10 @@ Use one exact English FireRed rev 1 ordinary single wild encounter [scenario](te
 
 ## Proof gates before building the slice
 
-1. **Package** records a successful x86_64 development artifact build, actual ABIs, source commit and signing identity. Install beside the official app using isolated fixture storage.
-2. **WSA** records physical hover before any press, button and scroll delivery and loss-of-focus behavior in a ROM-free probe. Record the target host configuration and any missing actions. An Android emulator provides a separate control.
+1. **Package and storage** verify a dev APK against the exact commit, ABIs and signer. Before starting a ROM, pass the [save-isolation gate](DEVELOPMENT.md#pre-launch-save-isolation-gate), including a disposable negative and unchanged original-side sentinel. The standalone probe needs only its own ROM-free APK.
+2. **WSA** records physical hover before any press, buttons, wheel and focus loss in the [ROM-free probe](WSA_PROBE.md). Use separate physical/injected traces and an ordinary Android mouse control. Follow with actual PokeDaisy router evidence.
 3. **Displayed geometry** aligns original pixel cells across fit, letterbox, companion resize/overlay and supported zoom/expansion geometry. Reject uncertain layout states and invalid image regions.
 4. **Native observation** captures exact ROM identity, actual ready state, active battler, action and move cursor, selectable slots and transition boundaries. Versions and evidence are retained with the scenario.
-5. **Execution and timing** demonstrate a single normal directional key step advances the intended cursor with native PP/type refresh, then A or B creates exactly one expected transition. Game and companion share one arbiter. Measure timings and reproduce a cancellation with frame evidence.
+5. **Execution and timing** run the [narrow experiment](test-scenarios/firered-battle.md#phase-1-feasibility-experiment). Prove ACTION hover to FIGHT with diagonal travel, one A to MOVE, native move PP/type update, and one B back. Verify applied release gaps, one interruption, one companion-owned press and one changed width. Record p95 before agreeing a native hover budget. The four action confirmations and one move confirmation belong in Phase 3.
 
-The first implementation task is the ROM-free WSA pointer and ownership probe, using a standalone Android debug APK. The full dev artifact gates the later PokeDaisy integration test. Start build and read-only FireRed work in parallel when their prerequisites are available.
+After Phase 0 approval, the first implementation task is the standalone ROM-free WSA pointer probe. Its result is a per-capability host recommendation. Qualify the actual app routing and exact-ROM readiness in follow-ups. Phase 2 dialogue is not a dependency of Phase 3 battle.
