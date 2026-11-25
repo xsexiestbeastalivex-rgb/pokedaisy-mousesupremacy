@@ -1,3 +1,31 @@
+# PokeDaisy MouseSupremacy
+
+**A mouse-first PokeDaisy fork for playing Pokémon through its original game interfaces.**
+
+MouseSupremacy aims to make Pokémon fully playable with a mouse while preserving the original gameplay, animations, menus and mechanics. It builds on [PokeDaisy](https://github.com/lidor30/pokedaisy), retaining its live companion, HUD, expanded overworld and zoom features rather than replacing them.
+
+### Project goals
+
+- Native hover selection without an initial click, left-click confirmation, right-click cancellation and context-sensitive scrolling.
+- Direct interaction with battle menus, moves, party, bag, dialogue and other original game interfaces.
+- Click-to-move using pathfinding and normal in-game movement; click NPCs to approach, face and interact with them.
+- Consistent mouse targeting in regular and expanded views at every supported zoom level, including adjustable companion layouts.
+- Preserve keyboard, controller and touch compatibility alongside mouse input.
+
+Development prioritizes **Pokémon Emerald and Emerald-based ROM hacks**, using both retail FireRed revisions as early engineering references. Shared interaction systems, reusable engine-family adapters and narrow ROM-specific profiles are intended to make additional games and hacks easier to support.
+
+The initial platform is Android, with Windows Subsystem for Android (WSA) as the primary Windows testing environment. Native Windows support remains a future possibility.
+
+**Development status:** Work in progress. The Android pointer-routing foundation has been independently reviewed and physically tested on WSA. Native battle interaction is under active development; full mouse-only gameplay, expanded-view compatibility and broader ROM-hack support are goals, not completed features.
+
+[Project status](docs/mousesupremacy/PROJECT_STATUS.md) · [Development roadmap](docs/mousesupremacy/ROADMAP.md) · [Architecture](docs/mousesupremacy/ARCHITECTURE.md) · [Compatibility](docs/mousesupremacy/COMPATIBILITY.md)
+
+## Original PokeDaisy project
+
+The original upstream description and credits follow below. Upstream release links and feature descriptions refer to PokeDaisy, not a completed MouseSupremacy release.
+
+---
+
 <div align="center">
 
 <img src="https://pokedaisy.com/og.png" alt="PokeDaisy: Game Boy, Game Boy Color, GBA and DS player with a live companion, on two screens or one, for Pokemon games and ROM hacks, free and open source" width="100%">
