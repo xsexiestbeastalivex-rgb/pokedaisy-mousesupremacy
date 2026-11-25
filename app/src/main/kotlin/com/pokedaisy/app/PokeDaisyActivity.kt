@@ -5349,6 +5349,13 @@ class PokeDaisyActivity : Activity() {
     // --- input ---------------------------------------------------------------
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val trace = mousePointerTrace
+        if (trace?.automaticBattleReference == true && event.keyCode == KeyEvent.KEYCODE_F8) {
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0 && hasWindowFocus()) {
+                trace.armBattleReference(::mousePointerScene)
+            }
+            return true
+        }
         if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
             mousePointerTrace?.invalidate("upstream-key")
         }

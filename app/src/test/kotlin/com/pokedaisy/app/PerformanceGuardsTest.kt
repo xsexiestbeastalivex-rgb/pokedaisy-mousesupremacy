@@ -1,5 +1,6 @@
 package com.pokedaisy.app
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -51,29 +52,79 @@ class PerformanceGuardsTest {
     }
 
     @Test
-    fun `the screen only shows finished frames`() {
-        // The core draws into its buffer line by line during pkRunFrame: a GL upload from it
-        // then was half one frame, half the next (a tear across the screen while scrolling).
-        val view = read("EmulatorView.kt")
-        val draw = view.substring(view.indexOf("private fun draw()")).substringBefore("\n        }\n")
-        assertTrue("draw() must upload the published copy (ready), not the core's buffer", "val buf = ready" in draw)
+    fun framePublicationUsesCompletedPixelsAndMatchingMetadata() {
+        // The GL thread uploads a copy made after the core step. Sample and window follow the
+        // same copy; neither a held draw nor a not-yet-swapped draw is fresh presentation.
         val engine = read("EmulatorEngine.kt")
-        assertTrue(
-            "EmulatorEngine must publish right after each pkRunFrame",
-            // (DS LAYOUT's transition hold decides first whether that frame is shown: DsTransitionHold.)
-            "MgbaCore.pkRunFrame()\n                onFrame?.invoke()" in engine ||
-                // (DsFrameSkip takes the time the frame ended: a clock read, nothing that delays the publish.)
-                Regex("""MgbaCore\.pkRunFrame\(\)\n(\s*val coreEnd = System\.nanoTime\(\)\n)?(\s*//[^\n]*\n)*\s*if \(nds\) stepDsHold\(\)\n\s*onFrame\?\.invoke\(\)""").containsMatchIn(engine),
-        )
-        assertTrue("the activity must wire onFrame to the view's publish", "view.publishFrame()" in lambda(read("PokeDaisyActivity.kt"), "onFrame = {"))
+        val frame = lambda(engine, "fun runCore() {")
+        assertOrdered(frame, "commitBattleMouse()", "MgbaCore.pkRunFrame()", "sampleCompletedBattleFrame()",
+            "if (nds) stepDsHold()", "onFrame?.invoke()", "frameCoop?.afterFrame()", "RetroAchievements.onFrame()")
+        val beforePublish = frame.substringAfter("MgbaCore.pkRunFrame()").substringBefore("onFrame?.invoke()")
+            .lineSequence().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("//") }.toList()
+        assertEquals("only the bounded sample and DS hold may run between core and publication",
+            listOf("val coreEnd = System.nanoTime()", "sampleCompletedBattleFrame()", "if (nds) stepDsHold()", "try {"),
+            beforePublish)
+        val capture = lambda(engine, "private fun sampleCompletedBattleFrame() {")
+        assertOrdered(capture, "battleMouseSample = null", "battleMouseWindow = mouseWideWindow",
+            "if (mouseObserverFailed || rewinding || mouseResetting) return",
+            "battleMouse?.applied(mouseFrameBefore, reader.frame(), reader.sample())")
+        assertTrue("Activity must publish the completed sample paired with the frame's camera window",
+            "view.publishFrame(battleMouseSample, battleMouseWindow)" in
+                lambda(read("PokeDaisyActivity.kt"), "onFrame = {"))
+
+        val view = read("EmulatorView.kt")
+        val front = lambda(view, "internal fun publishFrame(")
+        assertOrdered(front, "if (wide && MgbaCore.pkWideSkipped()) return",
+            "if (gpuFrames && MgbaCore.pkNdsGlPresented())", "renderer.publishGpu(",
+            "sample.takeIf { win === sampleWindow && w == win.w && h == win.h }")
+        val publish = lambda(view, "fun publish(wideW:")
+        val copy = lambda(publish, "synchronized(frameLock) {")
+        assertOrdered(copy, "val src = wideSrc ?: buffer", "val dst = ready", "dst.put(src)",
+            "readyWin =", "readyBattle =", "fresh = true")
+        val upload = lambda(lambda(view, "private fun draw() {"), "synchronized(frameLock) {")
+        assertOrdered(upload, "val buf = ready", "if (fresh && !holdFrame()", "takeGpuFrame()")
+        for ((api, binding) in listOf("glTexImage2D(" to "if (!texAllocated) {",
+            "glTexSubImage2D(" to "else if (fresh && !holdFrame()) {")) {
+            val take = lambda(upload, binding)
+            assertOrdered(take, "buf.position(0)", api, "shownWin = readyWin", "shownBattle = readyBattle")
+            assertTrue("each upload must use ready pixels", "GLES20.GL_UNSIGNED_BYTE, buf," in take)
+        }
+        val draw = lambda(view, "override fun onDrawFrame(")
+        assertOrdered(draw, "mouse.show(battleDraw?.takeIf { pointerPicture != null && !holdFrame() }",
+            "draw()", "reportPointerPicture()", "val sample = shownBattle", "Picture(sample, geometry.transform")
     }
 
     @Test
-    fun `nothing on the emu loop's per-frame path can end the game by throwing`() {
+    fun optionalFrameCallbacksContainExceptions() {
         val engine = read("EmulatorEngine.kt")
-        val frame = engine.substring(engine.indexOf("MgbaCore.pkRunFrame()")).take(600)
-        assertTrue("RetroAchievements.onFrame must be inside a try", Regex("""try \{\s+RetroAchievements\.onFrame\(\)""") in frame)
-        assertTrue("the AudioTrack is built inside runCatching", "runCatching { buildAudioTrack(" in engine)
+        val frame = lambda(engine, "fun runCore() {")
+        val sample = lambda(engine, "private fun sampleCompletedBattleFrame() {")
+        assertCaught(sample, "battleMouse?.applied(", "mouseObserverFailed = true")
+        assertCaught(frame, "onFrame?.invoke()", "framePublisherFailed = true")
+        assertCaught(frame, "RetroAchievements.onFrame()", "raFrameFailed = true")
+        assertTrue("AudioTrack creation and start must fall back to silence",
+            Regex("""runCatching \{ buildAudioTrack\(sampleRate\)\.also \{ it\.play\(\) \} \}\s*\.onFailure [^\n]*\n\s*\.getOrNull\(\)""")
+                .containsMatchIn(engine))
+    }
+
+    private fun assertOrdered(body: String, vararg steps: String) {
+        var previous = -1
+        for (step in steps) {
+            val index = body.indexOf(step)
+            assertTrue("expected $step after the preceding frame operation", index > previous)
+            previous = index
+        }
+    }
+
+    private fun assertCaught(body: String, operation: String, recovery: String) {
+        val i = body.indexOf(operation)
+        assertTrue("expected protected call $operation", i >= 0)
+        val start = body.lastIndexOf("try {", i)
+        val attempt = if (start >= 0) lambda(body.substring(start), "try {") else ""
+        assertTrue("$operation must execute inside its try", operation in attempt)
+        val tail = body.substring((start + attempt.length).coerceAtLeast(0)).trimStart()
+        assertTrue("$operation must recover after Exception",
+            Regex("""^catch \(\w+: Exception\) \{""").containsMatchIn(tail) && recovery in lambda(tail, "catch ("))
     }
 
     @Test

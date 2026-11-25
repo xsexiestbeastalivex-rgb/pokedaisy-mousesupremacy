@@ -11,18 +11,24 @@ import static com.pokedaisy.app.mouse.NativeBattleMouse.*;
 public final class NativeBattleMouseHarness {
     private static final class Core {
         final ArrayList<String> trace = new ArrayList<>();
-        final NativeBattleMouse mouse = new NativeBattleMouse(trace::add);
+        final NativeBattleMouse mouse;
         final ArrayList<Integer> masks = new ArrayList<>();
         long frame = 7, layout = 1, transform = 21, gesture;
         Menu menu = Menu.ACTION;
         int cursor = 3, slots = 3, applied;
         boolean busy, hold, suppressDraw;
         Menu transition;
+        int waitBusy;
         Native nativeState() {
             return busy ? new Native(menu, null, -1, 0) :
                     new Native(menu, menu, cursor, menu == Menu.ACTION ? 4 : slots);
         }
-        Core() {
+        Core() { this(false); }
+        Core(boolean faultOnApplied) {
+            mouse = new NativeBattleMouse(row -> {
+                if (faultOnApplied && row.startsWith("reference applied")) throw new IllegalStateException("test sink");
+                trace.add(row);
+            });
             mouse.session(true);
             mouse.layout(layout, transform);
             step(0, true);
@@ -34,7 +40,9 @@ public final class NativeBattleMouseHarness {
             masks.add(applied);
             if (!hold) {
                 frame++;
-                if (transition != null) {
+                if (transition != null && waitBusy > 0) {
+                    waitBusy--;
+                } else if (transition != null) {
                     menu = transition;
                     transition = null;
                     busy = false;
@@ -207,12 +215,110 @@ public final class NativeBattleMouseHarness {
         check(PointerLayout.coreQuad(texture, 240, 0, 320, 200, 240, 160) == null, "no native overlap");
     }
 
+    private static void boundedAutomaticReference() {
+        var core = new Core();
+        core.cursor = 0;
+        core.run(2);
+        core.masks.clear();
+        core.waitBusy = 1;
+        core.mouse.armReadinessProbe();
+        core.mouse.armReadinessProbe();
+        core.run(8);
+        check(core.nonzero().equals(List.of(A, B)), "exactly one A and busy B");
+        check(core.masks.subList(0, 3).equals(List.of(A, 0, B)), "busy B follows an applied neutral step");
+        check(core.menu == Menu.MOVE, "busy Back has no effect on settled MOVE");
+        check(core.trace.stream().noneMatch(row -> row.contains("enabled=true")), "ready MOVE Back still required");
+        core.step(B, false);
+        core.run(3);
+        check(core.trace.stream().anyMatch(row -> row.contains("enabled=true")), "ready Back qualifies with all witnesses");
+        core.mouse.armReadinessProbe();
+        core.masks.clear();
+        core.run(8);
+        check(core.nonzero().isEmpty(), "probe stops once qualified");
+
+        var missingMenu = new Core();
+        missingMenu.cursor = 0;
+        missingMenu.run(2);
+        missingMenu.mouse.armReadinessProbe();
+        missingMenu.mouse.observe(missingMenu.frame, missingMenu.nativeState());
+        missingMenu.mouse.commit(missingMenu.frame, 0, true, false, mask -> missingMenu.applied = mask);
+        check(missingMenu.applied == A, "explicit probe can request FIGHT");
+        var unknown = Native.UNKNOWN;
+        missingMenu.mouse.applied(missingMenu.frame, missingMenu.frame + 1, unknown);
+        missingMenu.mouse.commit(missingMenu.frame + 1, 0, true, false, mask -> missingMenu.applied = mask);
+        check(missingMenu.applied == 0, "unknown result retires the probe without B");
+
+        var shortWindow = new Core();
+        shortWindow.cursor = 0;
+        shortWindow.run(2);
+        shortWindow.masks.clear();
+        shortWindow.mouse.armReadinessProbe();
+        shortWindow.run(8);
+        check(shortWindow.nonzero().equals(List.of(A)), "a one-frame busy window cannot skip the release");
+        shortWindow.step(B, false);
+        shortWindow.run(3);
+        check(shortWindow.trace.stream().noneMatch(row -> row.contains("enabled=true")), "short busy case remains disabled");
+
+        for (String gate : List.of("companion", "manual", "picture", "no advancement")) {
+            var interrupted = new Core();
+            interrupted.cursor = 0;
+            interrupted.run(2);
+            interrupted.waitBusy = 2;
+            interrupted.mouse.armReadinessProbe();
+            if (gate.equals("no advancement")) interrupted.hold = true;
+            interrupted.run(1);
+            interrupted.masks.clear();
+            switch (gate) {
+                case "companion" -> interrupted.step(0, false);
+                case "manual" -> interrupted.step(LEFT, false);
+                case "picture" -> interrupted.mouse.show(null);
+                case "no advancement" -> interrupted.hold = false;
+                default -> throw new AssertionError(gate);
+            }
+            interrupted.run(8);
+            check(!interrupted.nonzero().contains(B), "no busy B after " + gate);
+            check(interrupted.trace.stream().noneMatch(row -> row.contains("enabled=true")), "no unsupported activation");
+        }
+    }
+
+    private static void traceExceptionDoesNotAbortAnAppliedFrame() {
+        var core = new Core(true);
+        core.cursor = 0;
+        core.run(2);
+        core.waitBusy = 1;
+        core.mouse.armReadinessProbe();
+        core.run(8);
+        check(core.nonzero().equals(List.of(A, B)), "optional trace failure does not interrupt core or presentation");
+        core.step(B, false);
+        core.run(3);
+        core.click(1, 135, 128);
+        core.run(8);
+        check(core.menu == Menu.MOVE, "the next interaction still works after a throwing trace sink");
+    }
+
+    private static void probeSubmissionSurvivesCancellation() {
+        var core = new Core();
+        core.cursor = 0;
+        core.run(2);
+        core.mouse.armReadinessProbe();
+        core.mouse.observe(core.frame, core.nativeState());
+        core.mouse.commit(core.frame, 0, true, false, mask -> core.applied = mask);
+        check(core.applied == A, "probe A was committed");
+        core.mouse.interrupt("focus-after-probe-write");
+        core.mouse.applied(core.frame, core.frame + 1, new Native(Menu.ACTION, null, -1, 0));
+        check(core.trace.stream().anyMatch(row -> row.startsWith("reference probe applied") && row.contains("mask=1 edge=true")),
+                "cancelled probe still records its already applied A");
+    }
+
     public static void main(String[] args) {
+        boundedAutomaticReference();
+        probeSubmissionSurvivesCancellation();
+        traceExceptionDoesNotAbortAnAppliedFrame();
         expandedProjection();
         twoWidths();
         interruptions();
         unavailableAndUnapplied();
         afterCommitCancellation();
-        System.out.println("Native battle fake core: two widths, nine interruptions, unqualified and no-step cases passed");
+        System.out.println("Native battle fake core: two widths, nine interruptions, unqualified/no-step cases, bounded reference and throwing trace passed");
     }
 }

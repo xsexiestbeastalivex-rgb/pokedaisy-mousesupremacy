@@ -1213,6 +1213,8 @@ class EmulatorEngine(
         var mouseResetting = false
         var mouseWasRewinding = false
         var mouseFrameBefore = -1L
+        private var mouseObserverFailed = false
+        private var framePublisherFailed = false
         var mouseWideWindow: WideCamera.Window? = null
         var trackGain = initialGain
 
@@ -1492,8 +1494,12 @@ class EmulatorEngine(
 
         private fun commitBattleMouse() {
             val reader = mouseReader ?: return
-            val mouse = battleMouse ?: return
-            val sampled = mouseStamp ?: return
+            val mouse = battleMouse
+            val sampled = mouseStamp
+            if (mouseObserverFailed || mouse == null || sampled == null) {
+                MgbaCore.pkSetKeys(upstreamKeys)
+                return
+            }
             mouseFrameBefore = reader.frame()
             mouse.observe(mouseFrameBefore, reader.sample())
             battleInput.commitWithMouseReservation { lateCompanion ->
@@ -1518,23 +1524,36 @@ class EmulatorEngine(
             }
         }
 
+        private fun sampleCompletedBattleFrame() {
+            val reader = mouseReader ?: return
+            battleMouseSample = null
+            battleMouseWindow = mouseWideWindow
+            if (mouseObserverFailed || rewinding || mouseResetting) return
+            try {
+                battleMouseSample = battleMouse?.applied(mouseFrameBefore, reader.frame(), reader.sample())
+            } catch (failure: Exception) {
+                mouseObserverFailed = true
+                battleMouse?.session(false)
+                Log.e("pokedaisy", "battle frame observation failed", failure)
+            }
+        }
+
         /** The core's frame and what reads its state right after it. */
         fun runCore() {
             commitBattleMouse()
             val coreStart = System.nanoTime()
             MgbaCore.pkRunFrame()
             val coreEnd = System.nanoTime()
-            if (mouseReader != null) {
-                battleMouseSample = null
-                battleMouseWindow = mouseWideWindow
-                val after = mouseReader.frame()
-                if (!rewinding && !mouseResetting) {
-                    battleMouseSample = battleMouse?.applied(mouseFrameBefore, after, mouseReader.sample())
-                }
-            }
+            sampleCompletedBattleFrame()
             // Before the frame is shown: the frame a menu transition starts fading on is never seen.
             if (nds) stepDsHold()
-            onFrame?.invoke()
+            try {
+                onFrame?.invoke()
+            } catch (failure: Exception) {
+                if (!framePublisherFailed) Log.e("pokedaisy", "frame publication callback failed", failure)
+                framePublisherFailed = true
+                battleMouse?.show(null)
+            }
             frameCoop?.afterFrame()
             framesRun++
             ticksSinceFrame = 0

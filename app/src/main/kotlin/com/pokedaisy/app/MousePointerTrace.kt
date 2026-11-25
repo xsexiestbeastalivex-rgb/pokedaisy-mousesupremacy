@@ -23,6 +23,7 @@ internal class MousePointerTrace private constructor(
     private val profile: Profile,
     private val slop: Float,
     enableBattle: Boolean,
+    internal val automaticBattleReference: Boolean,
 ) {
     private val battleRows = java.util.concurrent.atomic.AtomicInteger(1500)
     internal val battleMouse = if (enableBattle) NativeBattleMouse { row ->
@@ -82,6 +83,15 @@ internal class MousePointerTrace private constructor(
         if (seenPadEpoch == epoch) return
         seenPadEpoch = epoch
         invalidate("native-pad-contact")
+    }
+
+    fun armBattleReference(scene: () -> Scene?) {
+        updateLayout(scene())
+        val current = layout ?: return
+        val quad = current.gameQuad() ?: return
+        val x = quad.left() + (quad.right() - quad.left()) * (144f / 240f)
+        val y = quad.top() + (quad.bottom() - quad.top()) * (128f / 160f)
+        if (current.hit(x, y).owner() == PointerLayout.Owner.GAME) battleMouse?.armReadinessProbe()
     }
 
     fun layoutObserved(scene: () -> Scene?) {
@@ -296,7 +306,9 @@ internal class MousePointerTrace private constructor(
             if (!BuildConfig.DEBUG || BuildConfig.APPLICATION_ID != "com.pokedaisy.app.dev") return null
             val profile = Profile.entries.singleOrNull { File(activity.filesDir, it.marker).isFile } ?: return null
             val enableBattle = profile != Profile.DIRECT && File(activity.filesDir, "ms_native_battle").isFile
-            return MousePointerTrace(profile, ViewConfiguration.get(activity).scaledTouchSlop.toFloat(), enableBattle)
+            val automaticReference = enableBattle && File(activity.filesDir, "ms_native_battle_reference").isFile
+            return MousePointerTrace(profile, ViewConfiguration.get(activity).scaledTouchSlop.toFloat(),
+                enableBattle, automaticReference)
         }
     }
 }

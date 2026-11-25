@@ -6,7 +6,7 @@ import java.util.function.IntConsumer;
 public final class NativeBattleMouse {
     public static final int A = 1, B = 2, RIGHT = 16, LEFT = 32, UP = 64, DOWN = 128;
     private static final int HOVER = 0, FIGHT = 1, BACK = 2;
-    private static final int MAX_LAG = 6, MAX_ACK = 16;
+    private static final int MAX_LAG = 6, MAX_ACK = 16, MAX_PROBE_BUSY = 4;
 
     public enum Menu { ACTION, MOVE }
 
@@ -20,17 +20,21 @@ public final class NativeBattleMouse {
     private record Press(long gesture, int action, Target target) {}
     private record Intent(long gesture, int action, Target target, long time) {}
     private record Pulse(Intent intent, int mask, int expectedCursor, Menu expectedMenu, long before) {}
-    private record Reference(Menu from, long before, long busyBack, long result) {}
+    private record Reference(Menu from, long before, long busyBack, long result, boolean probe) {}
 
     @FunctionalInterface
     public interface Trace { void log(String row); }
 
     private final Trace trace;
+    private boolean traceFailed;
+    private Sample probeArm;
     private Sample current;
     private Picture picture;
     private long session, context, layout;
     private long layoutTransform = -1;
     private int lastApplied, dispatched;
+    private int probeSubmitted;
+    private long probeBefore;
     private Pulse submitted;
     private boolean qualifiedBusy;
     private boolean active, qualifiedAction, qualifiedMove;
@@ -49,11 +53,34 @@ public final class NativeBattleMouse {
 
     public NativeBattleMouse(Trace trace) { this.trace = trace; }
 
+    private void note(String row) {
+        if (traceFailed) return;
+        try {
+            trace.log(row);
+        } catch (Exception observerFailure) {
+            // A diagnostic sink cannot interrupt a committed frame or own the input.
+            traceFailed = true;
+        }
+    }
+
+    /** An explicit dev-only command, accepted only on the currently shown ready FIGHT cell. */
+    public synchronized void armReadinessProbe() {
+        if (qualified() || probeArm != null || reference != null || !pictureMatches() ||
+                current.nativeState.ready != Menu.ACTION || current.nativeState.cursor != 0) {
+            note("reference probe refused");
+            return;
+        }
+        invalidate("reference-probe");
+        probeArm = current;
+        note("reference probe armed frame=" + current.frame);
+    }
+
     public synchronized void session(boolean enabled) {
         session++;
         active = enabled;
         qualifiedAction = qualifiedMove = qualifiedBusy = false;
         submitted = null;
+        probeSubmitted = 0;
         picture = null;
         current = null;
         presentedFrame = -1;
@@ -64,7 +91,9 @@ public final class NativeBattleMouse {
     }
 
     public synchronized void invalidate(String reason) {
-        if (press != null || intent != null || pulse != null) trace.log("cancel reason=" + reason);
+        probeArm = null;
+        if (reference != null && reference.probe) reference = null;
+        if (press != null || intent != null || pulse != null) note("cancel reason=" + reason);
         press = null;
         intent = null;
         pulse = null;
@@ -103,7 +132,7 @@ public final class NativeBattleMouse {
                 qualifiedAction = true;
                 qualifiedBusy |= reference.busyBack >= 0;
             } else qualifiedMove = true;
-            trace.log("reference accepted from=" + reference.from + " ready=" + reference.result
+            note("reference accepted from=" + reference.from + " ready=" + reference.result
                     + " swap=" + next.sample.frame + " enabled=" + qualified());
             reference = null;
         }
@@ -111,13 +140,16 @@ public final class NativeBattleMouse {
             lastPresented = next.sample.nativeState;
             presentedFrame = next.sample.frame;
             Native state = next.sample.nativeState;
-            trace.log("swap frame=" + presentedFrame + " timeNs=" + next.time + " layout=" + layout
+            note("swap frame=" + presentedFrame + " timeNs=" + next.time + " layout=" + layout
                     + " visible=" + state.visible + " ready=" + state.ready + " cursor=" + state.cursor);
         }
     }
 
     /** Points are already normalized and routed through the existing application ownership path. */
     public synchronized void pointer(float x, float y, long transform, long time) {
+        if (probeArm != null || reference != null && reference.probe && reference.busyBack < 0) {
+            invalidate("reference-pointer");
+        }
         if (press != null && !press.target.equals(target(x, y, transform, press.action))) press = null;
         if (intent != null && !intent.target.equals(target(x, y, transform, intent.action))) intent = null;
         pointerX = x;
@@ -134,7 +166,7 @@ public final class NativeBattleMouse {
         Target target = target(x, y, transform, action);
         if (target != null && qualified() && compatible(target)) {
             press = new Press(gesture, action, target);
-            trace.log("press gesture=" + gesture + " frame=" + current.frame + " timeNs=" + time);
+            note("press gesture=" + gesture + " frame=" + current.frame + " timeNs=" + time);
         }
     }
 
@@ -159,7 +191,7 @@ public final class NativeBattleMouse {
             press = null;
             intent = null;
             if (pulse == null) hover = false;
-            trace.log("sample session=" + session + " context=" + context + " frame=" + frame
+            note("sample session=" + session + " context=" + context + " frame=" + frame
                     + " visible=" + state.visible + " ready=" + state.ready + " cursor=" + state.cursor);
         }
         current = new Sample(session, context, frame, state);
@@ -173,42 +205,75 @@ public final class NativeBattleMouse {
     public synchronized void commit(long before, int upstream, boolean idle, boolean referenceInput,
                                     IntConsumer write) {
         int mask = upstream;
+        probeSubmitted = 0;
         if (!active || current == null || before != current.frame) {
             invalidate("sample-unavailable");
         } else if (!idle || upstream != 0) {
             invalidate("upstream-owner");
-            nativeReference(before, upstream, referenceInput);
+            nativeReference(before, upstream, referenceInput, false);
         } else if (qualified()) {
             mask = nextMask(before);
+        } else {
+            mask = probeMask(before);
+            probeSubmitted = mask;
+            probeBefore = before;
         }
         dispatched = mask;
         submitted = pulse != null && pulse.before == before && mask == pulse.mask ? pulse : null;
         if (submitted != null) {
-            trace.log("dispatch sample=" + before + " context=" + context + " mask=" + mask
+            note("dispatch sample=" + before + " context=" + context + " mask=" + mask
                     + " gesture=" + pulse.intent.gesture + " pointerNs=" + pulse.intent.time + " layout=" + layout);
         }
         write.accept(mask);
     }
 
+    private int probeMask(long before) {
+        if (probeArm != null) {
+            Sample armed = probeArm;
+            probeArm = null;
+            if (lastApplied != 0 || !pictureMatches() || before < armed.frame || before - armed.frame > MAX_LAG ||
+                    current.session != armed.session || current.context != armed.context ||
+                    current.nativeState.ready != Menu.ACTION || current.nativeState.cursor != 0) return 0;
+            nativeReference(before, A, true, true);
+            if (reference != null && reference.probe) {
+                note("reference probe A frame=" + before);
+                return A;
+            }
+        }
+        if (reference == null || !reference.probe || reference.busyBack >= 0 || reference.result >= 0) return 0;
+        if (before <= reference.before || before - reference.before > MAX_PROBE_BUSY) {
+            reference = null;
+            return 0;
+        }
+        if (lastApplied != 0 || !busyWitness()) return 0;
+        nativeReference(before, B, true, true);
+        note("reference probe busy B frame=" + before);
+        return B;
+    }
+
     private boolean qualified() { return qualifiedAction && qualifiedMove && qualifiedBusy; }
 
-    private void nativeReference(long before, int mask, boolean allowed) {
-        if (qualified() || !allowed || lastApplied < 0 || mask == 0 || (lastApplied & mask) != 0) return;
-        if (reference != null && reference.from == Menu.ACTION && reference.result < 0 &&
-                current.nativeState.ready == null && current.nativeState.visible != null && mask == B &&
+    private boolean busyWitness() {
+        return reference != null && reference.from == Menu.ACTION && reference.result < 0 &&
+                current.nativeState.ready == null && current.nativeState.visible == Menu.ACTION &&
                 picture != null && picture.transform == layoutTransform &&
                 picture.sample.frame <= current.frame && current.frame - picture.sample.frame <= MAX_LAG &&
-                picture.sample.nativeState.visible == current.nativeState.visible) {
-            reference = new Reference(Menu.ACTION, reference.before, before + 1, -1);
-            trace.log("reference busy dispatched frame=" + before + " mask=" + mask + " shown=" + picture.sample.frame);
+                picture.sample.nativeState.visible == current.nativeState.visible;
+    }
+
+    private void nativeReference(long before, int mask, boolean allowed, boolean probe) {
+        if (qualified() || !allowed || lastApplied < 0 || mask == 0 || (lastApplied & mask) != 0) return;
+        if (mask == B && busyWitness()) {
+            reference = new Reference(Menu.ACTION, reference.before, before + 1, -1, reference.probe);
+            note("reference busy dispatched frame=" + before + " mask=" + mask + " shown=" + picture.sample.frame);
             return;
         }
         reference = null;
         if (lastApplied != 0 || !pictureMatches()) return;
         if ((current.nativeState.ready == Menu.ACTION && current.nativeState.cursor == 0 && mask == A) ||
                 (current.nativeState.ready == Menu.MOVE && mask == B)) {
-            reference = new Reference(current.nativeState.ready, before, -1, -1);
-            trace.log("reference dispatched frame=" + before + " mask=" + mask);
+            reference = new Reference(current.nativeState.ready, before, -1, -1, probe);
+            note("reference dispatched frame=" + before + " mask=" + mask);
         }
     }
 
@@ -218,29 +283,34 @@ public final class NativeBattleMouse {
         if (before < 0 || after < 0 || after != (before + 1) % 0x1_0000_0000L) {
             invalidate("no-forward-step");
             submitted = null;
+            probeSubmitted = 0;
             reference = null;
             lastApplied = -1;
             return null;
         }
         boolean edge = (dispatched & ~lastApplied) != 0 && lastApplied >= 0;
         lastApplied = dispatched;
+        if (probeSubmitted != 0 && probeBefore == before) {
+            note("reference probe applied frame=" + after + " mask=" + probeSubmitted + " edge=" + edge);
+        }
+        probeSubmitted = 0;
         if (submitted != null && submitted.before == before) {
             appliedAt = after;
-            trace.log("applied frame=" + after + " mask=" + dispatched + " edge=" + edge
+            note("applied frame=" + after + " mask=" + dispatched + " edge=" + edge
                     + " gesture=" + submitted.intent.gesture);
             if (!edge) invalidate("no-new-edge");
         } else if (appliedAt >= 0 && dispatched == 0 && !released) {
             released = true;
-            trace.log("applied frame=" + after + " mask=0 release=true");
+            note("applied frame=" + after + " mask=0 release=true");
         }
         submitted = null;
         if (reference != null) {
             if (reference.before == before && edge) {
-                trace.log("reference applied frame=" + after + " mask=" + dispatched);
+                note("reference applied frame=" + after + " mask=" + dispatched);
             }
             if (reference.busyBack == after) {
-                if (edge && dispatched == B) trace.log("reference busy applied frame=" + after + " mask=" + B);
-                else reference = new Reference(reference.from, reference.before, -1, -1);
+                if (edge && dispatched == B) note("reference busy applied frame=" + after + " mask=" + B);
+                else reference = new Reference(reference.from, reference.before, -1, -1, reference.probe);
             }
             updateReference(after, state);
         }
@@ -260,7 +330,7 @@ public final class NativeBattleMouse {
         }
         if (reference.result >= 0) return;
         if (state.ready != null && state.ready != reference.from) {
-            reference = new Reference(reference.from, reference.before, reference.busyBack, after);
+            reference = new Reference(reference.from, reference.before, reference.busyBack, after, reference.probe);
         } else if (state.ready == reference.from) {
             reference = null;
         }
@@ -353,7 +423,7 @@ public final class NativeBattleMouse {
             return false;
         }
         if (!pictureMatches()) return false;
-        trace.log("ack mask=" + pulse.mask + " applied=" + appliedAt + " native=" + frame
+        note("ack mask=" + pulse.mask + " applied=" + appliedAt + " native=" + frame
                 + " shown=" + picture.sample.frame + " cursor=" + state.cursor
                 + " latencyNs=" + (picture.time - pulse.intent.time));
         pulse = null;

@@ -64,7 +64,7 @@ jobs:
             app/src/main/java/com/pokedaisy/app/mouse/NativeBattleMouse.java \
             tools/mousesupremacy/NativeBattleMouseHarness.java
           java -cp "$classes" com.pokedaisy.app.mouse.NativeBattleMouseHarness
-          ./gradlew :app:testDevUnitTest --tests '*ControllerTriggersTest' --tests '*NativeBattleReaderTest' :app:assembleDev \
+          ./gradlew :app:testDevUnitTest --tests '*ControllerTriggersTest' --tests '*NativeBattleReaderTest' --tests '*PerformanceGuardsTest' :app:assembleDev \
             -Pquick -Ppokedaisy.x86_64=true --stacktrace
 
       - name: Verify package, native libraries and debug signature
