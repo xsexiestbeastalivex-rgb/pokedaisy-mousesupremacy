@@ -14,7 +14,7 @@ Headquarters set the platform, reference ROM, native-input, on-demand packaging 
 
 | Risk | Evidence and impact | Mitigation and exit proof |
 | --- | --- | --- |
-| R1 WSA input delivery or routing diverges | The existing host delivered translated hover and identifiable button masks. Its native wheel axes were unavailable. App routing and replacement APK physical regression remain open. | Correlate affected physical proof on the exact build, then separately prove stock controls and actual PokeDaisy routing. [ROM-free proof](WSA_PROBE.md) |
+| R1 WSA input delivery or routing diverges | The existing host delivered translated hover and identifiable button masks. Its native wheel axes were unavailable. The scoped replacement APK regression passed. | Independently re-review the corrected probe evidence. Prove stock controls and actual PokeDaisy routing separately. [ROM-free proof](WSA_PROBE.md) |
 | R2 Native menu ready state is stale or misidentified | First matching handler, cadence and permissive fallback are insufficient to authorize a click. | Read a coherent same-boundary sample and prove stable cursor/readiness and distinct action edges on real ROM frames. |
 | R3 Layout and compositor disagree | Actual shown quad can lag camera request or panel target placement. | Publish and test actual geometry, clipping and occlusion with visual evidence under resizing and frame hold. |
 | R4 Key ownership leaks across transitions | Existing masks are combined/overwritten at different points. | Trace one owner, clear synthetic keys, test reset/rewind/fast-forward, pause, companion overlap and concurrent manual input. |

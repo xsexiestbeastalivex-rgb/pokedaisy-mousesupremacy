@@ -1,6 +1,6 @@
 # Initialization report and project status
 
-**Milestone** · Phase 0 passed independent review and owner approval. [PR #1](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/pull/1) merged at `4a1779f7e6609c689ac9deee3db75d9573a1bfd8`. Headquarters retained the existing WSA host as the priority. Phase 1B.4 addresses the independent review in [draft PR #2](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/pull/2).
+**Milestone** · Phase 0 passed independent review and owner approval. [PR #1](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/pull/1) merged at `4a1779f7e6609c689ac9deee3db75d9573a1bfd8`. Headquarters retained the existing WSA host as the priority. The Phase 1B.5 corrected-probe physical regression passed and is ready for independent re-review in [draft PR #2](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/pull/2).
 
 ## Baseline and evidence ledger
 
@@ -74,7 +74,7 @@ Scope is the ROM-free probe. Reviewed source `0fe8338fc4e0c0fb8b8aad473514134c36
 | --- | --- |
 | Replacement build | APK source `731e1d096a4b6195faf1555d069c42b8e36efbe8`. [Scoped run 45548798061](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/actions/runs/45548798061) passed with JDK 17, Android SDK 34 and Build Tools 35.0.0. [Artifact 14991759386](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/actions/runs/45548798061/artifacts/14991759386). Archive SHA-256 `8552663f27346cd1a40375f5876bc9210cf5146b1cbe24ba0b2963aa39af3616`. |
 | Independent package inspection | APK SHA-256 `df9d9c4698780168714b50196df07b75b97d02d556a4adab6ac00e13401c791c`. APK v2 verified with one disposable RSA-2048 certificate, SHA-256 `f517aadb5047f111f8cdbf46d6c90b3f822b73eaa2f569cbe582d7eca64913d7`. `com.pokedaisy.mousesupremacy.probe`, version 1.0 (1), SDK 26/34, one exported launcher, debug enabled, backup disabled, resizable, zero requested permissions and zero native libraries. The downloaded APK embeds the source commit and includes the license and notice. The bundled runner and instructions match source. |
-| Host-independent tests | Local and hosted checks passed 11 recorder/standard cases, 10 WSA/router synthetic cases, 12 physical-derived model replays and three mutation rejections. The scoped runner test passed on PowerShell with mocked ADB. Android runtime and Windows PowerShell 5.1 execution on the replacement APK are pending. |
+| Host-independent tests | Local and hosted checks passed 11 recorder/standard cases, 10 WSA/router synthetic cases, 12 physical-derived model replays and three mutation rejections. The scoped runner test passed on PowerShell with mocked ADB. See [Phase 1B.5](#phase-1b5-corrected-probe-physical-regression) for live Android and Windows PowerShell 5.1 evidence. |
 | Privacy and scope | Review covered fixed concurrent device slots, bounded event/index retention, atomic app-local export, redacted public fixtures and scoped mock ADB calls. Capture artifacts and notes remain local by default. Source changes are confined to standalone diagnostics, its workflow and the project documents. |
 
 | Finding | Disposition and evidence |
@@ -91,7 +91,25 @@ Scope is the ROM-free probe. Reviewed source `0fe8338fc4e0c0fb8b8aad473514134c36
 | F10 · Stock controls and production routing | Deferred prerequisite. Use real stock Android mouse, finger and competing-stream controls before production integration. Actual PokeDaisy routing, viewport/companion geometry, save isolation and emulator input confirmation retain independent gates. |
 | F11 · Direct-touch direction | Consolidated in the requirements, ADR-07 and Systems 01, 02, 05 and 07. Separate adapters feed shared semantics for hover/touch selection, validated release and bounded drag. Physical and application-level acceptance remains gated. |
 
-**Replacement APK runtime.** The replacement build has replay and synthetic coverage. Its affected physical checks remain pending. Use one short windowed run for clean click, seam drag, spatial cancellation and fresh click, and one maximized run for clean click, held-focus cancellation and fresh click. The prior evidence still applies to the recorded host and commits. [Physical regression](../../tools/wsa-pointer-probe/README.md#phase-1b4-minimal-physical-regression)
+## Phase 1B.5 corrected probe physical regression
+
+**Passed on the tested WSA host.** The standalone `com.pokedaisy.mousesupremacy.probe` ran on WSA `2407.40000.4.0`, Android 13 API 33. The replacement APK source was `731e1d096a4b6195faf1555d069c42b8e36efbe8` and the reviewed checkout was `73e34c177aee98bc8b2e72ddd4e3ccf34f5f204d`. The archive digest, embedded source and v2 certificate matched the [pinned build record](#phase-1b4-review-corrections). The installed APK SHA-256 was `df9d9c4698780168714b50196df07b75b97d02d556a4adab6ac00e13401c791c`. After the operator approved replacing the disposable signer, the previous export was backed up before the standalone package was replaced. Windows PowerShell 5.1 `Prepare` used `-ExpectedApkSha256` and `-WsaCompatibility` on the verified Microsoft guest.
+
+| Mode and exercise | Retained event range | Result |
+| --- | --- | --- |
+| Windowed clean left-click | `199–205` | Touch `DOWN` and generic `BUTTON_PRESS` corroborated the opening. Generic `BUTTON_RELEASE` at `203` produced `release-pending` with `held=0`. Matching touch `UP` at `205` produced one `click=1`. |
+| Windowed seam drag | `210–454` | Confirmed opening at `210/212`, drag start at `222`, and held movement in B at `336`. Terminals at `452/454` reconciled to `drag-release`, `held=0`, and `click=0`. |
+| Windowed exit and re-entry | `918–1127` | Confirmed opening at `918/920`. Outside move at `1006` produced `spatial-exit`, `cancelled=1`, and `held=0`. Raw terminals at `1124/1125` produced no normalized edge. Unpressed re-entry at `1127` retained `held=0`. |
+| Windowed fresh left-click | `1418–1424` | Corroborated a fresh opening and terminal pair. The first terminal produced `release-pending` at `1422` and the second produced the only fresh confirmation at `1424`. |
+| Maximized clean left-click | `353–359` | Corroborated opening at `353/355`, `release-pending` at `357`, and one confirmation at `359`. |
+| Maximized held-focus cancellation | `448–464` | Corroborated opening at `448/450`, lost focus at `453`, and emitted one `focus-loss` cancellation at `454` with `held=0`. The guest's later raw `ACTION_CANCEL` at `459` produced no second edge. Focus returned at `464`. |
+| Maximized fresh left-click | `469–475` | Corroborated a fresh opening and terminal pair. `release-pending` at `473` preceded the only fresh confirmation at `475`. |
+
+The scored windowed and maximized captures retained 109 and 83 events respectively, including F9 markers `209/458/1354` and `363/468`. Each had two confirmations, zero duplicate or stale confirmations, zero residual held state, and zero discarded moves or boundaries. Opening pairs matched alias, pointer ID, down and event time, position and mask. Completed terminal pairs matched contact, event time and position, with the generic terminal identifying the released button. `Collect` validated distinct sessions, build and `physical-wsa` / `wsa-experimental` provenance. The maximized window returned to restored size during export after the tested actions. Full ZIPs and operator notes remain private.
+
+An interrupted windowed attempt was excluded. An earlier maximized attempt included an operator-reported extra click after refocus. The Activity recorded no matching raw button callbacks for that reported action, so the point where it was lost could not be determined. The controlled maximized retry delivered the first fresh click after focus returned. If the missing-input observation recurs, correlate a marked host-side click with Activity callbacks before changing reconciliation logic.
+
+Submit the scoped replacement-build evidence for independent re-review. Prior physical evidence remains attached to its tested commits and the Phase 1B.4 replay remains model evidence. Stock Android mouse, real touch, competing input and physical device/density churn lack new live coverage. Production routing, game geometry, save isolation and emulator confirmation remain separate gates. [Regression procedure](../../tools/wsa-pointer-probe/README.md#phase-1b4-minimal-physical-regression)
 
 ## Findings and direction
 
@@ -122,4 +140,4 @@ Reviewed the correction against all 23 sections of the Master Project Initializa
 
 Record approved scope separately from implementation, build, unit, integration, runtime and acceptance evidence. Track merge and release separately. Reuse the baseline evidence for this document-only correction. The correction commit skips a redundant Actions build. GitHub can leave required checks pending on a skipped head. Before an approved merge, check the actual branch rules and obtain checks on an eligible head if required. [GitHub skip behavior](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/skip-workflow-runs)
 
-Use the [short Phase 1B.4 physical regression](../../tools/wsa-pointer-probe/README.md#phase-1b4-minimal-physical-regression) with the exact replacement APK and submit the affected evidence for independent re-review. Retain the existing WSA installation as priority. The stock Android controls and [narrow FireRed experiment](test-scenarios/firered-battle.md#phase-1-feasibility-experiment) have separate prerequisites. Owner approval gates merge and subsequent implementation.
+Review the [Phase 1B.5 physical results](#phase-1b5-corrected-probe-physical-regression) independently. Retain the existing WSA installation as priority. The stock Android controls and [narrow FireRed experiment](test-scenarios/firered-battle.md#phase-1-feasibility-experiment) have separate prerequisites. Owner approval gates merge and subsequent implementation.
