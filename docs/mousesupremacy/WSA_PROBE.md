@@ -1,0 +1,88 @@
+# Windows Subsystem for Android pointer verification
+
+**Status:** Procedure proposed. Android source behavior has been audited at `717f4f49979f4aa5c4c8f4cd64638a0fa935d844`. Physical Windows Subsystem for Android (WSA) input remains unverified. The Linux initialization environment has no attached Android target, Android Emulator or `/dev/kvm`. Platform-tools were provisioned for build verification and ADB found no connected devices. The existing Compose Desktop preview exercises UI rendering on the JVM.
+
+This procedure provides evidence for [platform input](specifications/01-platform-input.md), [input ownership](specifications/02-input-ownership.md), [viewport geometry](specifications/04-viewport-geometry.md), [companion integration](specifications/12-companion-feedback.md) and [diagnostics](specifications/13-diagnostics.md). See [development](DEVELOPMENT.md) for APK setup and [testing](TESTING.md) for the other verification layers.
+
+## What the code and platform APIs establish
+
+- Standard Android exposes hover enter, move and exit, button press and release with an action button and held-button mask, and scroll axes through `MotionEvent`. Mouse events can arrive through hover, generic motion and touch dispatch. A button press can cause `ACTION_HOVER_EXIT` before `ACTION_DOWN` with the pointer still inside the view. Test for this event ordering and coalesce overlapping button representations. Use the view-local absolute position. Evaluate `View.setPointerIcon` or `onResolvePointerIcon` as optional feedback while keeping the pointer uncaptured. [MotionEvent](https://developer.android.com/reference/android/view/MotionEvent) · [Pointer input](https://developer.android.com/develop/ui/views/touch-and-input/input-compatibility-on-large-screens) · [Pointer icon API](https://developer.android.com/reference/kotlin/android/view/ViewGroup#onResolvePointerIcon(android.view.MotionEvent,kotlin.Int))
+- PokeDaisy prioritizes joystick motion and existing UI owners. `AndroidGbaInput` converts joystick axes into emulator input bits. The audited Android game host has no dedicated mouse-hover route. Its Android Back handling can operate companion UI, so trace a physical secondary click at the motion and key dispatch boundaries. [Generic motion dispatch](https://github.com/lidor30/pokedaisy/blob/717f4f49979f4aa5c4c8f4cd64638a0fa935d844/app/src/main/kotlin/com/pokedaisy/app/PokeDaisyActivity.kt#L5744-L5792) · [AndroidGbaInput](https://github.com/lidor30/pokedaisy/blob/717f4f49979f4aa5c4c8f4cd64638a0fa935d844/app/src/main/kotlin/com/pokedaisy/app/AndroidGbaInput.kt#L6-L18) · [Back and companion dispatch](https://github.com/lidor30/pokedaisy/blob/717f4f49979f4aa5c4c8f4cd64638a0fa935d844/app/src/main/kotlin/com/pokedaisy/app/PokeDaisyActivity.kt#L5685-L5721)
+- Docking changes the available game width. An unlocked panel can cover the picture and its animated offset changes its actual footprint. Compose gives the parent a chance to dismiss the panel on a press. Transparent touch-pad subwindows can also take events before the game activity. Use the visible owner for the entire gesture and verify this at real panel edges. [SidePanelState](https://github.com/lidor30/pokedaisy/blob/717f4f49979f4aa5c4c8f4cd64638a0fa935d844/app/src/main/kotlin/com/pokedaisy/app/companion/ui/SidePanelState.kt#L21-L75) · [SharedGameScreen](https://github.com/lidor30/pokedaisy/blob/717f4f49979f4aa5c4c8f4cd64638a0fa935d844/app/src/main/kotlin/com/pokedaisy/app/companion/ui/SharedGameScreen.kt#L44-L65) · [Animated panel placement](https://github.com/lidor30/pokedaisy/blob/717f4f49979f4aa5c4c8f4cd64638a0fa935d844/app/src/main/kotlin/com/pokedaisy/app/companion/ui/SharedGameScreen.kt#L119-L145) · [TouchInputWindows](https://github.com/lidor30/pokedaisy/blob/717f4f49979f4aa5c4c8f4cd64638a0fa935d844/app/src/main/kotlin/com/pokedaisy/app/TouchInputWindows.kt#L87-L112)
+- The renderer publishes wide frames with their camera windows and can retain an older displayed frame during a hold. The HUD's `onCoreRect` uses a static approximation for Expand. Use the transform of the frame actually shown. Check the DS bottom screen against its own touchscreen rectangle. The existing debug mirror changes the stage layout and should be off for single-monitor acceptance. [EmulatorView bounds](https://github.com/lidor30/pokedaisy/blob/717f4f49979f4aa5c4c8f4cd64638a0fa935d844/app/src/main/kotlin/com/pokedaisy/app/EmulatorView.kt#L78-L128) · [Renderer shown frame](https://github.com/lidor30/pokedaisy/blob/717f4f49979f4aa5c4c8f4cd64638a0fa935d844/app/src/main/kotlin/com/pokedaisy/app/EmulatorView.kt#L709-L765) · [DS bottom touch dispatch](https://github.com/lidor30/pokedaisy/blob/717f4f49979f4aa5c4c8f4cd64638a0fa935d844/app/src/main/kotlin/com/pokedaisy/app/NdsBottomScreen.kt#L267-L306) · [Debug mirror](https://github.com/lidor30/pokedaisy/blob/717f4f49979f4aa5c4c8f4cd64638a0fa935d844/app/src/main/kotlin/com/pokedaisy/app/PokeDaisyActivity.kt#L2469-L2484)
+- Microsoft removed WSA and the Amazon Appstore from the Microsoft Store on March 5, 2025. Use the existing WSA installation as the first test target and capture its exact version. Windows host forwarding remains a separate test result from the Android contracts. [Microsoft availability](https://support.microsoft.com/en-us/windows/apps/mobileapps/install-mobile-apps-and-the-amazon-appstore-on-windows) · [Microsoft WSA Developer Mode](https://support.microsoft.com/en-us/windows/apps/mobileapps/manage-settings-for-mobile-apps-on-windows)
+
+## First experiment and implementation scope
+
+Build a small, separately identified Android debug probe APK under the fork on a follow-up branch. It needs one Activity, two adjacent labeled regions and an opt-in, bounded observation log. It requires no ROM, emulator core, native ABI libraries, network permission or production app changes. A separate debug package also avoids scheduling the full native emulator build just to test Windows event forwarding. Use an existing Android build toolchain and the upstream minimum SDK for the first run. Pin the probe's source commit and record the APK hash. Remove the probe from the host after testing if the tester no longer needs it.
+
+Observe Activity touch, generic motion, key and window-focus dispatch and the test views' hover and generic-motion callbacks. Pass through superclass behavior and record the observation point and whether the event was handled. Sample event time, receipt time, source, tool type, masked action, changed button when defined, button state, raw and local position, horizontal and vertical scroll, window focus, region ID and current layout revision. Use session-local device aliases to correlate events. Maintain monotonic event sequence numbers and coalesce move samples for output while retaining action boundaries, exits, focus and discarded-event counts. The UI should show the latest probe state, including unpressed hover and the active region.
+
+Use a stock Android device with a connected mouse as the forwarding/control comparison. Qualify the existing WSA host separately with a physical Windows mouse. Record unavailable hardware as a skipped comparison with a concrete prerequisite. If the probe shows an input-source or callback difference, retain the original trace before changing the Android adapter. Once host delivery is known, add passive, debug-only instrumentation at PokeDaisy's actual game surface and UI ownership boundaries to check where the same events are routed. Keep the existing keyboard, controller and touchscreen paths active during this second experiment.
+
+## Target and package checks
+
+On the Windows 11 PC with the existing WSA installation, start an Android app to wake the subsystem and check the endpoint in WSA Developer Mode. Use the actual endpoint instead of assuming a port. Select one authorized WSA target, especially if ADB also lists an emulator or phone.
+
+```powershell
+$pdAdb = 'C:\platform-tools\adb.exe'
+& $pdAdb devices -l
+$pdWsaTarget = Read-Host 'WSA ADB target shown in devices or WSA Developer Mode'
+# For a WSA TCP endpoint that is not already connected:
+# & $pdAdb connect $pdWsaTarget
+& $pdAdb -s $pdWsaTarget get-state
+& $pdAdb -s $pdWsaTarget shell getprop ro.build.version.sdk
+& $pdAdb -s $pdWsaTarget shell getprop ro.product.cpu.abilist
+& $pdAdb -s $pdWsaTarget shell pm list packages com.pokedaisy.app
+Get-AppxPackage '*WindowsSubsystemForAndroid*' | Select-Object Name,Version
+```
+
+Use `connect` only to attach a TCP endpoint that ADB has yet to connect to. Continue once the target reports `device`. If it is `unauthorized`, approve the local Android debugging prompt and recheck. If the connection is refused, wake WSA and recheck its current endpoint and Developer Mode. Record Windows build, WSA package version, Android SDK level, guest ABI list, mouse type and Windows display scaling. Keep device serials and connection addresses out of submitted traces.
+
+Install the standalone probe under its own package ID. For the later PokeDaisy integration run use the upstream `dev` variant, whose package ID is `com.pokedaisy.app.dev`. Obtain and verify the [development APK for the intended source commit](DEVELOPMENT.md#exact-commit-development-apks) before installing. After installation, complete the [pre-launch save-isolation gate](DEVELOPMENT.md#pre-launch-save-isolation-gate) before opening any ROM, including one launched by a shortcut or resume intent. The standalone probe remains usable without this game-storage gate. The existing build includes `arm64-v8a` by default and adds `x86_64` only with the flag. Select the ABI based on the guest rather than the Windows CPU alone. Preserve the original `com.pokedaisy.app` installation and use a separate local copy of any fixture or save. If the installed dev package has a different signing certificate, stop the update and resolve signing or test identity before touching its data. [ABI flags](https://github.com/lidor30/pokedaisy/blob/717f4f49979f4aa5c4c8f4cd64638a0fa935d844/app/build.gradle.kts#L79-L93) · [Dev build type](https://github.com/lidor30/pokedaisy/blob/717f4f49979f4aa5c4c8f4cd64638a0fa935d844/app/build.gradle.kts#L167-L175) · [Upstream dev app and shared-folder caveat](https://github.com/lidor30/pokedaisy/blob/717f4f49979f4aa5c4c8f4cd64638a0fa935d844/docs/DEVELOPMENT.md#L4004-L4009)
+
+After verifying APK SHA-256 and using the target from the previous section, install each APK on its applicable test run. Apply the package, ABI and signer checks above before installing the integration build. Use a clean dev package or a known matching retained development signer for updates.
+
+```powershell
+& $pdAdb -s $pdWsaTarget install .\mousesupremacy-pointer-probe.apk
+& $pdAdb -s $pdWsaTarget install .\pokedaisy-dev.apk
+```
+
+## Physical mouse sequence
+
+Run distinct sessions with the same bounded diagnostic fields and explicit provenance labels. Android source/tool values describe what reached the guest.
+
+- In the **physical WSA** run, disable pointer injectors, emulation automation and input replay. Acquire window focus by keyboard, for example Alt+Tab, without pressing a mouse button in the view. Mark sequence start and end in the guest trace and correlate them to a short continuous opt-in Windows capture or timestamped operator sequence. Include the physical mouse connection, focus method, action order and step numbers or timing offsets. Associate host and guest timebases using the markers and event sequence. Keep a short trace segment containing initial motion with zero buttons and the first press. Use a separate physical session for the stock Android control.
+- In the **injected control** run, launch a new labeled trace and record the injector, entry point and exact sequence. Compare events with the same fields and marker procedure. Use this result for normalization/routing from that injection point.
+- Repeat the physical checks in both a fresh windowed session and a maximized landscape session. After the standalone probe, check actual Android PokeDaisy routing in one isolated dev run, including changed width, native viewport, companion, overlay/child-window capture and a mouse action owned by each relevant surface. Save isolation is required before a game launch. Keep the standalone host-forwarding verdict separate from the app-routing verdict.
+
+| Exercise | Pass evidence |
+| --- | --- |
+| Move into and across both regions before pressing any mouse button | The trace contains position updates with a mouse source or an explicitly documented WSA equivalent and zero buttons. The receiving region follows the pointer and receives an exit when it leaves. If keyboard focus is unavailable or motion begins only after a click, report the pre-click test as failed or unavailable with evidence. |
+| Click primary, secondary and middle once each | Each click can be attributed to its physical button with one press and release after normalization. Record duplicate touch and generic callbacks. If right-click becomes Android Back or Windows consumes it, record exactly where evidence stops. |
+| Scroll both ways over the game and a companion list | The trace reports sign and magnitude over the expected receiver. A later ownership test must show that companion scrolls affect only that list. Record horizontal scroll if the test mouse supports it. |
+| Press, move out of the region, then release | Record the hover-exit and action order. The owner cancels or observes release, and there is no second activation. An exit caused by pressing the button at the same coordinates does not substitute for the spatial-exit test. |
+| Hold a button, switch Windows focus, release outside and return | The app observes focus loss or another clear cancellation signal. No action remains held or replays on return. |
+| Drag-resize the window and dock, undock or resize the companion | The expected pointer target follows visible game and companion boundaries throughout the change. One press on a grip, companion panel, HUD control, overlay or touch-pad button produces zero mouse-issued game actions underneath. |
+| Change Original, Stretch and Expand, including a zoom transition | Layout and render sequence changes are visible in the trace. The displayed location of the same reference marker maps back to its original game pixel before and after a settled resize or zoom. A point outside the current rendered and unoccluded rectangle produces no game target. |
+| Open the floating companion or a game-blocking modal | The active surface receives the action. The game receives no mouse-issued action through the overlay. For the later DS test, check that DS touch-screen coordinates and ownership are separate from the DS top screen. |
+
+Start the probe's tagged diagnostic capture before moving the mouse. Capture guest screenshots only with opt-in on disposable data. On PowerShell 5.1, use ADB's screenshot and pull workflow to preserve PNG bytes. Review captured content before sharing. Add a Windows desktop capture when verifying the host pointer icon or WSA compositor, since an Android screenshot alone may omit it. Include a short event excerpt correlated with each image. [ADB screenshot documentation](https://developer.android.com/tools/adb#screencap)
+
+```powershell
+& $pdAdb -s $pdWsaTarget shell screencap -p /sdcard/pokedaisy-ms-probe.png
+& $pdAdb -s $pdWsaTarget pull /sdcard/pokedaisy-ms-probe.png ./pokedaisy-ms-probe.png
+```
+
+## Evidence and fallback decisions
+
+| Evidence | What it establishes |
+| --- | --- |
+| Android documentation and source audit | Android's possible event model and the upstream integration boundaries. |
+| Injected MotionEvents or ADB touch commands | Adapter or Android app behavior from the injection point. |
+| Physical mouse against a stock Android target | Event delivery and Android frontend behavior for that target. |
+| Physical Windows mouse with WSA and the standalone probe | Windows-to-Android forwarding for the recorded target, input device, focus state and window mode. |
+| Physical Windows mouse with the instrumented PokeDaisy APK | Forwarding plus the actual game, HUD, touch-pad and companion routes tested for that build. |
+| Headless emulator, desktop preview or SDL pointer replay | Deterministic game or frontend behavior on the respective host. |
+
+Report pass, fail or unavailable per button, hover, wheel, focus, layout and host configuration with a trace ID and a host recommendation. If WSA forwarding degrades to touch or a secondary press is indistinguishable from Android Back, keep the affected capability unavailable and preserve upstream controls. Compare with the physical Android control, then independently qualify a suitable Windows-hosted Android environment, such as Android Emulator when available, for physical mouse forwarding, simultaneous viewport and companion on one monitor, resize and device/ABI operation. Consider a separate SDL/native Windows adapter only after that qualification and a distinct core, UI, save and companion parity review. [Existing SDL pointer handling](https://github.com/lidor30/pokedaisy/blob/717f4f49979f4aa5c4c8f4cd64638a0fa935d844/linux/main.c#L464-L502)

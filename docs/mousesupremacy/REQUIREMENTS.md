@@ -1,0 +1,202 @@
+# Product requirements and acceptance ledger
+
+The master initialization brief sets the product direction. This ledger is the source of truth for capability coverage and verification status. The [13 system specifications](specifications/README.md) describe implementation boundaries and the [roadmap](ROADMAP.md) sets execution order. Each section assigns its rows to the linked system. The stable suffix identifies a criterion within that system. A prerequisite written as a criterion ID refers to this ledger.
+
+**Pending** means the stated acceptance evidence is outstanding. **Gated** means the named feasibility or approval decision precedes implementation and verification. **Baseline verified** covers the stated existing-build evidence only. Update individual rows with evidence links and verified ROM, host, and build scope as work lands. Baseline tests and a passing sibling row provide no runtime credit for a pending capability. Keep unavailable capabilities disabled for that profile or host.
+
+The Phase 1 pointer and battle rows are feasibility checks. Phase 3 owns the first complete action and move menu slice. Later rows describe additional capabilities and have their own gates.
+
+## MS-INPUT-001 Platform input
+
+System [01 Platform input](specifications/01-platform-input.md). Brief §§4, 5.5, 5.7, 9, 14.
+
+| Criterion | Phase / prerequisites | Acceptance evidence | Status |
+| --- | --- | --- | --- |
+| `MS-INPUT-001.01` Physical pre-click hover | 1 · ROM-free probe | Focus the window without clicking in the probe, then move into, across and out of its regions. A correlated physical Windows host sequence and guest trace show hover, exit and re-entry before a mouse press, in windowed and maximized WSA. Use separately labeled injected and physical sessions and a stock Android mouse control. | Pending |
+| `MS-INPUT-001.02` Physical button edges | 1 · same probe and host provenance as .01 | Trace left, right and middle separately in both layouts. Each supported gesture resolves to one press and one release, including duplicate Android dispatch. Report an unavailable button if its identity is indistinguishable from an upstream event such as Back. | Pending |
+| `MS-INPUT-001.03` Physical wheel | 1 · same probe and host provenance as .01 | Record wheel direction and magnitude over each test region in both layouts. Capture vertical delivery and horizontal availability separately. | Pending |
+| `MS-INPUT-001.04` Physical focus and leave | 1 · same probe and host provenance as .01 | Move out of the window and switch focus while holding a button. The trace identifies leave or focus cancellation and no stale gesture on re-entry. | Pending |
+| `MS-INPUT-001.05` Primary button default | 2 starts binding · 03, 05 and 08; 06, 07, 09 and 10 own later contexts | For each qualified context, left-click selects, confirms, advances dialogue, interacts with an entity or sets a destination according to the relevant criterion. An unbound context yields zero mouse game keys. | Pending |
+| `MS-INPUT-001.06` Secondary button default | 3 starts native battle back · verified secondary delivery and back/cancel behavior | In each qualified context right-click performs one native back or cancel, or cancels the route in Phase 5. Unknown contexts and unavailable physical secondary delivery send no mouse cancel. | Pending |
+| `MS-INPUT-001.07` Middle-click Start | 4 · verified field readiness and native Start capability | One middle-click in an eligible field frame opens Start. Menu, battle and unknown contexts send zero Start presses. | Pending |
+| `MS-INPUT-001.08` Configurable button bindings | 9 · stable platform and context bindings | Change bindings, reopen settings and verify the mapped and unbound cases produce the configured behavior. Restore defaults and exercise keyboard/controller alongside mouse. An extra-button shortcut needs independent host delivery and an approved mapping. | Gated |
+| `MS-INPUT-001.09` Configurable wheel behavior | 9 · qualified contextual scrolling and pages | Change or disable the wheel mapping. In the same fixture record the expected choice, direction or no action, including at list bounds. | Gated |
+| `MS-INPUT-001.10` Windows-hosted Android fallback | 1 if WSA fails the required physical input · same probe and criteria .01–.04 | Qualify an available Windows-hosted Android environment with independent physical provenance, same-monitor game/companion viability and one real app routing check before considering a native Windows implementation. | Gated |
+
+## MS-ROUTE-001 Ownership and Mouse Mode
+
+System [02 Routing and ownership](specifications/02-input-ownership.md). Brief §§5.5–5.7, 8–9, 14.
+
+| Criterion | Phase / prerequisites | Acceptance evidence | Status |
+| --- | --- | --- | --- |
+| `MS-ROUTE-001.01` Single-owner routing | 2 · platform trace, actual display transform and host occlusion | Exercise a single physical click through duplicated callbacks, then click game, HUD, companion, app chrome and touch regions separately. Trace exactly one owner and zero underlying mouse game keys for app-owned gestures. | Pending |
+| `MS-ROUTE-001.02` Manual veto at the core | 2 · frame boundary investigation and final input contract | In separate keyboard and controller cases inject simultaneous physical input, mouse intent, and where relevant an upstream pending tap, companion request, turbo or co-op owner. Compare complete final masks with baseline upstream behavior and require zero mouse-owned keys in the competing frame. | Pending |
+| `MS-ROUTE-001.03` Gesture cancellation | 2 · final input commitment contract and session/context epochs | Replay pointer leave, focus loss, application/game pause, state load, reset, rewind, fast-forward, ROM switch, layout or scene change while a mouse intent is waiting to dispatch. The old intent never applies, a previously held mouse key is released without clearing independent upstream keys, and a new click is needed. | Pending |
+| `MS-ROUTE-001.04` Mouse Mode toggle | 2 · gesture cancellation and upstream baseline | With a queued click and held mouse key, disable Mouse Mode. Observe baseline keyboard/controller/touch masks, no armed gesture or mouse overlay, and a clean re-enable. Verify mode state on relaunch. | Pending |
+| `MS-ROUTE-001.05` Click-to-move control | 5 · safe walking and Mouse Mode toggle | Turn click-to-move off mid-route. The route and its owned keys clear; later tile clicks create no route until enabled. | Pending |
+| `MS-ROUTE-001.06` Native menu hover control | 4 · qualified native menu and Mouse Mode toggle | Toggle menu hover in a verified screen. Turning hover off stops hover-driven cursor changes and custom feedback. Separately verify any allowed clicks and existing controls. | Pending |
+| `MS-ROUTE-001.07` Native battle interaction control | 3 · qualified battle slice and Mouse Mode toggle | Disable native battle interaction with a pending battle gesture. Confirm the gesture clears, native UI and upstream battle controls remain available, and subsequent hover or clicks send zero mouse battle keys. | Pending |
+| `MS-ROUTE-001.08` NPC interaction control | 6 · qualified NPC interaction and Mouse Mode toggle | Disable NPC interaction during approach. No pending turn or A survives, independent route policy remains testable, and a disabled NPC cannot start a new interaction. | Pending |
+
+## MS-OBS-001 Readiness and state
+
+System [03 Game observation](specifications/03-game-observation.md). Brief §§5.1, 8–10, 14.
+
+| Criterion | Phase / prerequisites | Acceptance evidence | Status |
+| --- | --- | --- | --- |
+| `MS-OBS-001.01` Positive native readiness | 1 · exact FireRed identity and safe reference fixture | Record per-frame menu kind, active battler, ready flag, cursor and visible presentation through ACTION, FIGHT entry, MOVE and back. Include a visible fade or busy frame that does not accept the original key, then prove acceptance on a stable ready frame. | Pending |
+| `MS-OBS-001.02` Coherent epochs and actual masks | 2 · Phase 1 frame observations and 02 final input commitment | Deliver sampled, dispatched, applied and presented identities in a traced held or skipped presentation, and test stale state, ROM replacement and menu re-entry to the same apparent menu. A stale request produces zero applied mouse presses. | Pending |
+| `MS-OBS-001.03` Unknown state and authority | 2 · readiness adapter and capability rules | Feed absent, stale, ambiguous and explicit zero values to the adapter. Distinguish unavailable data and emit zero mouse input where required. Observe output written only through ordinary emulator input, with the ROM deciding selection, position, inventory, health, encounters and outcomes. | Pending |
+
+## MS-VIEW-001 Displayed geometry
+
+System [04 Viewport geometry](specifications/04-viewport-geometry.md). Brief §§5.6, 8–9, 14.
+
+| Criterion | Phase / prerequisites | Acceptance evidence | Status |
+| --- | --- | --- | --- |
+| `MS-VIEW-001.01` Native pixels and clipping | 2 · renderer transform and observed host layout | Point inside and at boundaries of the same native cell under fit, stretch, scaling, letterbox and clipping. Compare projected target and displayed pixels; obscured or letterboxed points produce no game hit. | Pending |
+| `MS-VIEW-001.02` Resized windows and monitors | 2 · 04 presented transforms | Compare target/pixel correspondence in windowed and full or maximized layouts at different client sizes and DPI settings. An explicit layout change invalidates pending screen-space input. | Pending |
+| `MS-VIEW-001.03` Expansion, zoom and held render | 2 · renderer and companion layout evidence | In CPU/GPU variants supported by the host, correlate current drawn pixels with hit tests during zoom or expanded layouts and a held or skipped presentation. Reject ambiguous pixels; never target the future frame. | Pending |
+| `MS-VIEW-001.04` DS screen ownership | 8 · supported DS host/core/layout and baseline touch evidence | Verify bottom-screen touch and game/HUD top-screen ownership separately across supported DS arrangements; no cross-screen action from the same input. | Gated |
+
+## MS-HIT-001 Semantic targets and gestures
+
+System [05 Semantic interaction](specifications/05-semantic-interaction.md). Brief §§5.1, 5.4, 8–9, 14.
+
+| Criterion | Phase / prerequisites | Acceptance evidence | Status |
+| --- | --- | --- | --- |
+| `MS-HIT-001.01` Visible and enabled targets | 2 · 02, 03, 04 and exact capability rule | Hover enabled, disabled, clipped, outside and overlapping bounds. Only eligible visible targets permit confirmation. Disabled visual feedback, where defined, never arms the corresponding action. | Pending |
+| `MS-HIT-001.02` Exact gesture identity | 2 · ownership commitment and observed readiness | Start a gesture on one cell and change target, occlusion or epoch before commitment. Compare exact intended and applied target IDs; invalidated gestures apply zero A, B or unrelated actions. | Pending |
+| `MS-HIT-001.03` Rapid pointer input | 2 · gesture lifecycle and replay trace | Sweep across cells, repeat identical hover, click rapidly and scroll during a transition. Latest eligible hover wins, repeated hover emits no extra input, and canceled clicks or scrolls cannot apply after the transition. | Pending |
+| `MS-HIT-001.04` Stationary pointer on submenu entry | 4 · qualified menu transition and updated geometry | Leave the pointer within the newly opened submenu's valid row. The next ready observation allows fresh hover without an activation press, while the preceding gesture produces no submenu confirm. | Pending |
+
+## MS-BATTLE-001 Original battle UI
+
+System [06 Native battle interaction](specifications/06-native-battle.md). Brief §§5.1, 8–9, 14–15, 18.
+
+| Criterion | Phase / prerequisites | Acceptance evidence | Status |
+| --- | --- | --- | --- |
+| `MS-BATTLE-001.01` Narrow reference feasibility | 1 · exact English FireRed rev 1, isolated copies, 03 readiness and host probe evidence | In an ordinary single wild battle, trace ACTION hover, one FIGHT A, MOVE native cursor and PP/type change, and one B return. Include diagonal cursor travel, an interruption, companion-owned press and changed width. Correlate applied mask, readiness, release gaps, screenshots and p95 pointer-to-presented-cursor. Approve a budget and any fallback after measurement. | Pending |
+| `MS-BATTLE-001.02` Four native action hovers | 3 · .01 plus routed pointer, displayed geometry and readiness | Move through FIGHT, BAG, POKéMON and RUN in the original screen before the first click. Each cell gets the correct native selection or approved feedback, tracks pointer movement and emits zero confirm or cancel keys. | Pending |
+| `MS-BATTLE-001.03` Four original action outcomes | 3 · .02, verified native cursor and eligible single-battle context | From separate starts, confirm each action once. FIGHT opens moves, BAG opens original bag, POKéMON opens original party, and RUN invokes the native attempt once without automatically dismissing its result. | Pending |
+| `MS-BATTLE-001.04` Move hover and native context | 3 · .01 and active slot readiness | Hover occupied legal moves with differing information; the native cursor and available move data, including PP/type where shown, follow the intended slot without A. Disabled and empty moves cannot confirm. | Pending |
+| `MS-BATTLE-001.05` Exactly-one move confirm | 3 · .04 and final applied-frame arbitration | Confirm a selected move once in a disposable fight. Record one applied A and the ROM's move outcome or PP change, with no sibling move selection. | Pending |
+| `MS-BATTLE-001.06` Native back and transition guards | 3 · .04, actual mask and epoch contract | In MOVE, right-click applies one B and returns to ACTION. During busy, changed-width-invalidated, manual-takeover or companion-owned paths, assert zero stale mouse A/B. | Pending |
+| `MS-BATTLE-001.07` Battle party and voluntary switch | 7 · verified battle party readiness, topology and switch rules | Hover the original party list. One deliberate click on an eligible party member follows the native switch choice, while an ineligible member cannot switch. | Gated |
+| `MS-BATTLE-001.08` Forced switch | 7 · verified forced-party mode and legal choices | In a forced-switch scenario, an eligible replacement follows the ROM exactly once. A prohibited cancel, fainted member or stale cursor produces zero unauthorized mouse keys. | Gated |
+| `MS-BATTLE-001.09` Battle bag and item selection | 7 · verified battle bag and item/target readiness | Select one usable item and assert the native use or target screen. Disabled items and transition input create no item use. | Gated |
+| `MS-BATTLE-001.10` Double-battle target selection | 7 · verified battler/target masks and original target menu | Hover two eligible targets and confirm the intended target once. A stale or invalid target cannot apply A, and one battler's gesture cannot select for another. | Gated |
+| `MS-BATTLE-001.11` Catching | 7 · eligible original ball and target contexts | Choose the ball and any required target, then observe one original throw or an original refusal. The ROM determines the catch outcome. | Gated |
+| `MS-BATTLE-001.12` Move learning and forgetting | 7 · qualified learning and forget screens, 08 prompt readiness | Use separate learn, forget and decline fixtures. Select the intended move or branch once, and verify native move data and no carried click between screens. | Gated |
+| `MS-BATTLE-001.13` Evolution prompts | 7 · exact evolution prompt/readiness or verified cancellation path | Exercise allowed proceed and cancel paths on disposable fixtures, and observe the ROM's outcome and one requested decision. Unverified button meanings stay unavailable. | Gated |
+| `MS-BATTLE-001.14` Battle or special prompt ownership | 7 · battle context qualification and 08 prompt executor | System 06 classifies battle and post-battle text or yes/no context; System 08 owns each timed advance or choice. Verify a battle-text advance and a verified yes/no branch with no double ownership. Add tests separately before enabling another game-specific surface. | Gated |
+
+## MS-MENU-001 Original non-battle menus
+
+System [07 Native non-battle menus](specifications/07-native-menus.md). Brief §§5.4–5.5, 8–9, 14–15, 18. Every named screen requires its own exact-revision observation and negative evidence.
+
+| Criterion | Phase / prerequisites | Acceptance evidence | Status |
+| --- | --- | --- | --- |
+| `MS-MENU-001.01` Title and main menu | 4 · confirmed valid title/menu actions and isolated saves | Hover each supported title/main item before pressing a key or mouse button. Click one safe visible action from a disposable setup and observe its native destination once. | Gated |
+| `MS-MENU-001.02` Start and immediate submenu | 4 · first qualified menu and one qualified submenu | Hover and highlight Start choices without confirming. Press once into the submenu, observe fresh hover before another input, then right-click back along the supported native path. | Pending |
+| `MS-MENU-001.03` Party | 4 · party visibility and slot eligibility | Select a visible enabled party slot once. Empty, grayed or off-screen slots cannot activate another member. | Gated |
+| `MS-MENU-001.04` Summary and move pages | 4 · verified summary topology | From a party member's summary, click a visible supported tab and wheel one supported page. Verify native page and move data and no action at bounds. | Gated |
+| `MS-MENU-001.05` Bag and field items | 4 · indexed valid inventory/pocket state | Open a native pocket/tab and select a visible usable field item once. Assert native result or original refusal on a disposable fixture; empty/disabled rows cause zero mouse A. | Gated |
+| `MS-MENU-001.06` Pokédex | 4 · native index and scroll state | Scroll and select a visible eligible entry. The original index changes within bounds and the selected detail corresponds to the entry. | Gated |
+| `MS-MENU-001.07` PC and storage boxes | 4 · independently qualified PC screens and disposable data | Click a verified PC choice, change a box using its original controls, and select an eligible visible slot. Assert zero transfer on hover or unsupported choices. | Gated |
+| `MS-MENU-001.08` Shops | 4 · verified shop rows, quantity and original prompts | Select a visible item, observe its native prompt and cancel or confirm once on a disposable fixture. Test a disabled choice and a wheel at list bounds. | Gated |
+| `MS-MENU-001.09` Options | 4 · native options controls and readback | Click a supported visible button or row, observe only the intended native setting change, then return through the original back path. | Gated |
+| `MS-MENU-001.10` Direct tabs and buttons | 4 · observed native control IDs and regions | Click two visible controls, including a tab, and assert each native destination. Click between controls and assert zero applied mouse keys. | Pending |
+| `MS-MENU-001.11` Context wheel scrolling and page turns | 4 · observed list/page bounds and wheel provenance | Exercise bounded list scroll in both directions, a page turn or selection change where defined, and an inactive or transition region. Observe intended native index/page changes and zero unrelated inputs. | Pending |
+| `MS-MENU-001.12` Naming and text entry | 7 · exact grid and confirm/delete feasibility | Prove the available original naming controls with a disposable name. Qualify click-to-select, delete, confirm and any text entry method separately; unsupported forms remain disabled. | Gated |
+| `MS-MENU-001.13` Additional game-specific menus | 7 or 8 · approved per-profile screen inventory | List discovered surfaces by stable capability and add an eligible target, an invalid target and an original transition assertion for each before enabling. | Gated |
+
+## MS-DIALOGUE-001 Dialogue and prompts
+
+System [08 Dialogue and contextual actions](specifications/08-dialogue.md). Brief §§5.1, 5.4–5.5, 9, 14.
+
+| Criterion | Phase / prerequisites | Acceptance evidence | Status |
+| --- | --- | --- | --- |
+| `MS-DIALOGUE-001.01` Ordinary field advance | 2 · dialogue readiness and 02 commitment; independent consumer proof | For one sign or NPC dialogue, one left-click within the waiting text issues one A and observes one acknowledgment even if the next message replaces text inside the same box. Hover, held duplicate or printing/busy case never advances a second page. | Pending |
+| `MS-DIALOGUE-001.02` Yes/no choices and allowed cancel | 4 · verified option identity and readiness; 07 supplies non-battle screen context | Use separately reset ordinary prompts to choose Yes, choose No and cancel where supported. Each commit follows the native branch once, while a new prompt in the same text box requires a fresh click. System 06 qualifies battle variants independently. | Gated |
+| `MS-DIALOGUE-001.03` Other context-specific prompts | 7 · per-kind mapped native behavior | Use one supported non-yes/no fixture and assert allowed options and back behavior. Reject unrecognized prompts and hold/cutscene input with zero mouse acknowledgments. | Gated |
+
+## MS-MOVE-001 Original overworld navigation
+
+System [09 Overworld navigation](specifications/09-overworld-navigation.md). Brief §§5.2, 5.5–5.7, 8–9, 14.
+
+| Criterion | Phase / prerequisites | Acceptance evidence | Status |
+| --- | --- | --- | --- |
+| `MS-MOVE-001.01` Legal map-local walking | 5 · verified traversal and step signals, 02–05, exact map capability | Click two reachable tiles including a detour around a wall. Observe original direction, turn, tile-step and animation, camera tracking and final tile. A target outside the reachable set produces zero movement keys. | Pending |
+| `MS-MOVE-001.02` New destinations and user cancel | 5 · active route and 02 ownership | During separate routes click a new destination, valid right-click cancel, and take over via keyboard/controller. Old path releases at the next valid boundary and never resumes without a new request. | Pending |
+| `MS-MOVE-001.03` Changed blockers and occupancy | 5 · walkability and live map/NPC occupancy observations | Block a previously legal path with a moving actor or changed tile. Stop or recompute within the route budget, without issuing a known illegal step. | Pending |
+| `MS-MOVE-001.04` Encounters and scene interruptions | 5 · verified scene transitions and navigation | Exercise wild battle, trainer/script event, dialogue, menu and cutscene separately. Preserve each native trigger, stop applying route keys at the interruption, and verify no stale resume when the field returns. | Pending |
+| `MS-MOVE-001.05` Water and surf | 7 · exact tile permissions and verified surf behavior | Compare a blocked walking route to one legal surf route from an eligible state. Verify native transition, result, and safe refusal with missing prerequisites. | Gated |
+| `MS-MOVE-001.06` Ledges, directional tiles and elevation | 7 · directional/elevation decoder and known legal edges | Verify allowed and disallowed directions and elevation crossing on each supported terrain class. Legal movement preserves native animation and blocked edges send zero route input. | Gated |
+| `MS-MOVE-001.07` Doors, stairs, warps and map boundaries | 7 · qualified transition handshake and destination identity | Exercise one authorized edge for each transition type and one blocked boundary. Assert the original transition and explicit stop or approved route continuation after the new map is positively identified. | Gated |
+| `MS-MOVE-001.08` Running and bicycle states | 7 · runtime verification of normal controls and upstream Auto-Run | Measure and compare running and bicycle paths independently with keyboard/controller baseline. Unsupported movement state cancels the route without a stale step. | Gated |
+| `MS-MOVE-001.09` Forced movement and special terrain | 7 · exact terrain/script profiles and bounded routing | Exercise native scripted movement and each supported special-terrain class as separate cases. Native script remains authoritative, unknown semantics stop the path, and no direct position writes are used. | Gated |
+| `MS-MOVE-001.10` Destination indicator | 5 · approved route target and displayed geometry | Show the correct map-local destination during a route and move the visual indicator with the camera. It clears when replaced, canceled or completed and consumes no gameplay input. | Pending |
+
+## MS-NPC-001 Actors and environmental interactions
+
+System [10 NPC and environmental interaction](specifications/10-entity-interaction.md). Brief §§5.3, 8–9, 14.
+
+| Criterion | Phase / prerequisites | Acceptance evidence | Status |
+| --- | --- | --- | --- |
+| `MS-NPC-001.01` Hover recognized interactables | 6 · exact entity identity, screen projection and capability | Compare one actionable NPC/object with a decorative, occluded, ambiguous or inaccessible target. Feedback applies only under the documented recognition rules and hover applies zero A. | Pending |
+| `MS-NPC-001.02` Ordinary NPC contact | 6 · qualified map-local walking and actor contact rules | Click an NPC from a distance, reach a valid adjacent tile, turn without leaving contact, verify facing and send one ordinary A. Stop movement on the resulting dialogue. | Pending |
+| `MS-NPC-001.03` Moving or despawned NPC | 6 · actor lifetime, occupied tiles and admissible contact directions | Move or despawn the target mid-approach. Revalidate actor identity and approach, then replan safely or cancel. No stale A reaches a reused actor slot. | Pending |
+| `MS-NPC-001.04` Signs and environmental objects | 6 · each object's verified trigger and allowed facing | Exercise a sign and an eligible environmental object. Their native response begins once at a permitted side, with zero activation from a blocked face. | Gated |
+| `MS-NPC-001.05` Door interaction | 7 · verified door/contact rules and 09 map transition | Open or enter one original door once. On map change, stop or revalidate any continuation as specified for that route. | Gated |
+| `MS-NPC-001.06` Ground items | 7 · original item and adjacency detection | Pick up one accessible item once on a disposable fixture and verify the original result. A decorative or already collected target produces no input. | Gated |
+| `MS-NPC-001.07` Service entities | 7 · shop, Pokémon Center and PC contact profiles | Exercise each service entrance or terminal separately. Confirm the expected original service screen starts once and movement stops. | Gated |
+| `MS-NPC-001.08` Static Pokémon and engine-specific entities | 7 or 8 · verified trigger and entity profile | Approach one eligible static encounter and any additional enabled entity class through normal controls. Observe exactly one native interaction; unknown classes are unavailable. | Gated |
+
+## MS-COMPAT-001 Per-capability ROM support
+
+System [11 ROM compatibility](specifications/11-compatibility.md). Brief §§7, 9, 14–15, 18.
+
+| Criterion | Phase / prerequisites | Acceptance evidence | Status |
+| --- | --- | --- | --- |
+| `MS-COMPAT-001.01` Exact loaded ROM identity | 1 · read-only fingerprint and extracted payload provenance | Match English FireRed rev 1 from loaded bytes. Reject a revision change and a same-header/raw-byte mismatch; verify archive metadata alone cannot qualify a ROM. | Pending |
+| `MS-COMPAT-001.02` Per-capability rejection | 2 · versioned profile and read-only readiness | Test mixed supported and missing capabilities on an exact profile and an unknown ROM. A missing capability produces zero mouse gameplay input while baseline controls remain available. | Pending |
+| `MS-COMPAT-001.03` Reuse and second-family proof | 8 · first verified FireRed slice and separate ROM fixtures | Compare one closely related retail revision and a divergent layout or engine. Demonstrate a shared contract with a verified narrow override or safe rejection, and record capability evidence by exact revision in the [matrix](COMPATIBILITY.md). | Gated |
+| `MS-COMPAT-001.04` Mouse-only play claim | 9 · per-capability coverage and applicable regression evidence | Run a representative play segment through the original battle, field, entity and menu actions without using keyboard or controller. Report any required fallback for that exact ROM/host. Separately demonstrate keyboard and controller continue to work. | Gated |
+
+## MS-FEEDBACK-001 Native feedback and companion
+
+System [12 Companion, HUD and visual feedback](specifications/12-companion-feedback.md). Brief §§5.1, 5.3, 5.6–5.7, 8–9, 14.
+
+| Criterion | Phase / prerequisites | Acceptance evidence | Status |
+| --- | --- | --- | --- |
+| `MS-FEEDBACK-001.01` Companion resizing, docking and dismissal | 2 · actual rendered bounds and 02 observer | Test two pane widths, drag handle, locked and unlocked panels, animated occlusion and outside-dismiss. Companion gestures produce zero game input beneath the panel, and exposed native targets align after resize. | Pending |
+| `MS-FEEDBACK-001.02` HUD, floating window and app settings | 2 · upstream ownership and 04 actual visible layout | Exercise a HUD region, floating companion, and PokeDaisy setting/menu while a game target sits underneath. Each owning surface acts once and emits zero mouse gameplay keys. | Pending |
+| `MS-FEEDBACK-001.03` Native cursor and optional visual fallback | 3 · native cursor/readiness evidence and measured latency | The original visible game UI reports correct target feedback. Where native feedback cannot meet the approved contract, approve and test any visually subordinate, non-obscuring indicator separately. Overlay pixels never authorize gameplay input. | Gated |
+| `MS-FEEDBACK-001.04` Independent companion battle-panel visibility | 3 · 02 ownership and native battle interaction | Toggle the replacement battle panel independently of Mouse Mode. Original UI stays visible and independently usable wherever qualified; the companion panel remains interactable and never causes underlying game activation. | Pending |
+| `MS-FEEDBACK-001.05` Cursor appearance | 9 · proven native interactions and owner regions | Compare supported cursor appearances across interactable, default and outside regions. Switching appearance does not affect ownership or applied masks. | Gated |
+| `MS-FEEDBACK-001.06` Hover-highlight appearance | 9 · separately approved highlight and layout | Change or disable the highlight and verify no stale mark on leave, occlusion, or mode off. Native selection and hit geometry remain correct. | Gated |
+| `MS-FEEDBACK-001.07` Destination-indicator setting | 9 · qualified destination rendering | Hide or change the marker and verify the same destination and key trace across both settings, with stale feedback cleared. | Gated |
+| `MS-FEEDBACK-001.08` Supplementary tooltips | 9 · approved use case and measured UI behavior | Compare tooltip on and off for a supported target. Native PP/type or equivalent context stays readable, and the overlay consumes no gameplay action. | Gated |
+
+## MS-TEST-001 Evidence, developer tooling and distribution
+
+System [13 Testing and diagnostics](specifications/13-diagnostics.md). Brief §§9–10, 12, 14, 17, 20, 23. Keep build and test evidence separate from host, ROM and user acceptance.
+
+| Criterion | Phase / prerequisites | Acceptance evidence | Status |
+| --- | --- | --- | --- |
+| `MS-TEST-001.01` Versioned, bounded observations | 1 · dev-only local trace and 03 availability conventions | Capture a machine-readable sample with known schema, build/session/frame provenance and available or explicitly unknown state. Exercise capture limits, drop counts and one unsupported field. Extend menu and field observations only as capabilities qualify. | Pending |
+| `MS-TEST-001.02` Real frontend pointer replay | 1 starts a probe case · explicit dev target and frontend event path | Run a tagged move/hover and an eligible click or wheel through the actual application router when available. Verify expected region, owner and ordered trace. Track press/release, cancellation and unsupported controls by capability; injected runs remain separately labeled. | Pending |
+| `MS-TEST-001.03` Correlated screenshots | 1 · consent, explicit scoped dev target and trace marker | Capture an opted-in viewport or full companion/window image aligned to the trace and expected target. Later highlight and geometry cases require current overlay visibility and scene evidence. | Pending |
+| `MS-TEST-001.04` Headless input, step and bounded assertion | 1 · existing host harness and disposable fixture | Issue an ordinary key through the headless core, advance to a named frame or bounded state condition and record the expected result. A timeout yields an explicit failure or skipped prerequisite. | Pending |
+| `MS-TEST-001.05` Reproducible and portable scenario records | 1 · one ROM-free public and one exact-ROM private scenario | Reproduce a positive and negative case using recorded source SHA, host/core, ROM payload and state-format provenance, start state, bounded steps and outcomes. Keep private files local and record an explicit unavailable prerequisite for skipped cases. | Pending |
+| `MS-TEST-001.06` Sanitized replay and support bundles | 1 starts one trace · scoped developer run and privacy rules | Produce one redacted replay record with input, state, results and timestamps/frame identities, with declared omissions. Before supporting bundles, verify versioning, bounded output, opt-in screenshots and exclusion of ROM/save bytes, device IDs, personal paths and secrets. | Pending |
+| `MS-TEST-001.07` Deterministic unit and integration evidence | 2 begins · affected contracts and synthetic fixtures | Exercise geometry/hit tests, cancellation/state transitions, menu actions, capability gates and eventually navigation/obstacle logic. In a core-boundary integration trace compare intended, applied and observed results. ROM-free regression cases remain runnable without game files. | Pending |
+| `MS-TEST-001.08` Performance and scope | 1 measurements, 3 slice gate · equivalent baseline, display and companion state | Capture input-to-presented feedback latency (including p95), frame pacing, FPS, CPU, memory and polling overhead before and after at fixed settings, including pointer burst and companion resize. Measure route cost in Phase 5. One displayed frame is an investigation target; approve case-specific budgets after data and avoid UI/core work per pointer event. | Pending |
+| `MS-TEST-001.09` Device/user acceptance | 1 begins · genuinely device-specific capability | Supply exact steps, expected output and capture method for physical WSA only when trusted automation cannot establish it. Separate that evidence from headless and injected cases and record a per-host pass, fail or unavailable result. | Pending |
+| `MS-TEST-001.10` Reproducible baseline APK | 0 · pinned build inputs and fork workflow | Match archive checksums, exact source provenance, package, ABI and disposable signer for the verified baseline APK. Install evidence is a separate criterion. [Evidence ledger](PROJECT_STATUS.md) | Baseline verified |
+| `MS-TEST-001.11` On-demand exact-commit APK | 1 · workflow on default branch and first packaging-relevant change | Dispatch before an APK is needed, then download the artifact whose embedded commit matches the desired source. Check ABI, package, signature and digest before use. Docs and scoped logic use existing evidence when the runnable payload is equivalent. | Pending |
+| `MS-TEST-001.12` Save isolation and side-by-side install | 1 · pre-launch gate, APK ABI/signature, disposable fixture and device | Prove original and dev packages coexist. Record a checked effective fixture save target, one write with an unchanged original-side sentinel, and a rejected shared target using synthetic disposable data before running a personal linked ROM. | Pending |
+| `MS-TEST-001.13` Retained signing and updater policy | Before retained development install or regular distribution · owner approval and trusted signer workflow | Qualify separate package/display identity and increasing fork versions with upstream provenance. A signed in-place upgrade retains fixture data, an unrelated signer fails without removal, and the installed fork never takes an official update path. | Gated |
+| `MS-TEST-001.14` Production and distribution isolation | Before distribution · component, fork ownership, source and license review | Inspect production APK for absence or inaccessibility of diagnostic control. Verify exported components, links/provider authorities, safe defaults and obtainable corresponding source/build inputs including notices. | Gated |
+| `MS-TEST-001.15` Repeatable local tooling | After demonstrated repeat use · minimal harness evidence | A fresh operator follows the documented install or launch, scoped observation, pointer and headless replay, screenshot and result steps. Introduce a CLI, richer tracking or a bridge only if captured repetitions justify it and the production-isolation gate still passes. | Gated |
