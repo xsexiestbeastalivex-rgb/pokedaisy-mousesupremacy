@@ -43,7 +43,7 @@ final class WsaPointer {
                 || sample.action() == POINTER_DOWN || sample.action() == POINTER_UP) {
             return reject(sample, sample.action() == CANCEL ? "android-cancel" : "ambiguous-contact");
         }
-        if (sample.downTime() <= closedThrough || active() && sample.downTime() < start.downTime()) return null;
+        if (isRetired(sample.downTime()) || active() && sample.downTime() < start.downTime()) return null;
         if (sample.isOpening() && (!active() || sample.downTime() > start.downTime())
                 && sample.eventTime() < lastEvent) return null;
         if (active() && sample.downTime() > start.downTime()) {
@@ -178,7 +178,11 @@ final class WsaPointer {
         sawTouchDown = sawButtonPress = dragging = clickEligible = false;
     }
 
-    private void retire(long downTime) {
+    boolean isRetired(long downTime) {
+        return downTime <= closedThrough;
+    }
+
+    void retire(long downTime) {
         closedThrough = Math.max(closedThrough, downTime);
     }
 

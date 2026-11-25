@@ -72,6 +72,15 @@ final class ProbeInput {
         boolean competing = (pointer || source == 0 && ambiguousIdentity) && sample.isContact();
         boolean conflict = (competing || exit || sample.action() == CANCEL)
                 && conflictingStream && wsa[wsaOwner].applies(sample);
+        if (translated && conflictingStream && sample.isContact()) {
+            long downTime = sample.downTime();
+            // Retire the stale generation on its own slot so it cannot reopen after the owner releases.
+            if (!conflict) wsa[slot].retire(downTime);
+            // A missing down time stays ambiguous and can still cancel the owner.
+            if (!conflict || downTime > 0 && wsa[slot].isRetired(downTime)) {
+                return new Decision(null, interpretation, 0, null);
+            }
+        }
         if (conflict) {
             displacedSlot = wsaOwner;
             String reason = sample.action() == CANCEL ? "ambiguous-cancel"

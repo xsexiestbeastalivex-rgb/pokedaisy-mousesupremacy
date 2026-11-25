@@ -30,8 +30,11 @@ public final class WsaProbeTest {
         spatialAndAmbiguousCancel();
         dragAndSlop();
         arbitration();
+        staleAliasTerminalOrders();
+        rejectedAliasCannotReopen();
+        competingTranslatedAliases();
         deviceChurn();
-        System.out.println("PASS 10 WSA/router synthetic cases, 12 physical-derived replays, 3 deliberate mutations rejected");
+        System.out.println("PASS 13 WSA/router synthetic cases, 12 physical-derived replays, 3 deliberate mutations rejected");
     }
 
     private static void replay(List<String> rows, boolean report) {
@@ -280,6 +283,105 @@ public final class WsaProbeTest {
         expect(null, finish(input, 400, 420));
         start(input, 500);
         expect(1, finish(input, 500, 520).click());
+    }
+
+    private static void staleAliasTerminalOrders() {
+        for (int stalePairPosition = 0; stalePairPosition < 3; stalePairPosition++) {
+            for (boolean genericFirst : new boolean[]{false, true}) {
+                var input = new ProbeInput(2);
+                input.attach(1);
+                input.attach(2);
+                start(input, 200);
+                expectIgnored(translated(input, 2, DOWN, 100, 100, 0, 1));
+                expectIgnored(translated(input, 2, BUTTON_PRESS, 100, 100, 1, 1));
+                expect(1, translated(input, 1, MOVE, 200, 210, 0, 1).result().held());
+
+                Action first = genericFirst ? BUTTON_RELEASE : UP;
+                Action second = genericFirst ? UP : BUTTON_RELEASE;
+                int button = genericFirst ? 1 : 0;
+                if (stalePairPosition == 0) ignoreStalePair(input, first, second, button);
+                var pending = translated(input, 1, first, 200, 220, button, 0);
+                expect(0, pending.displacedSlot());
+                expect("release-pending", pending.result().phase());
+                expect(0, pending.result().click());
+                expect(0, pending.result().held());
+                if (stalePairPosition == 1) ignoreStalePair(input, first, second, button);
+                var completed = translated(input, 1, second, 200, 220, 1 - button, 0);
+                expect(0, completed.displacedSlot());
+                expect(1, completed.result().released());
+                expect(1, completed.result().click());
+                expect(0, completed.result().held());
+                if (stalePairPosition == 2) ignoreStalePair(input, first, second, button);
+                expectIgnored(translated(input, 1, second, 200, 220, 1 - button, 0));
+            }
+        }
+        System.out.println("PASS stale translated alias in all tested terminal orders");
+    }
+
+    private static void ignoreStalePair(ProbeInput input, Action first, Action second, int firstButton) {
+        expectIgnored(translated(input, 2, first, 100, 120, firstButton, 0));
+        expectIgnored(translated(input, 2, second, 100, 120, 1 - firstButton, 0));
+    }
+
+    private static void rejectedAliasCannotReopen() {
+        var input = new ProbeInput(2);
+        input.attach(1);
+        input.attach(2);
+        start(input, 200);
+        expectIgnored(translated(input, 2, DOWN, 100, 100, 0, 1));
+        // An inconsistent timestamp is inapplicable even when its down time is newer.
+        expectIgnored(translated(input, 2, MOVE, 250, 190, 0, 1));
+        expectIgnored(translated(input, 2, CANCEL, 250, 260, 0, 0));
+        expect(1, finish(input, 200, 220).click());
+
+        expectIgnored(translated(input, 2, BUTTON_PRESS, 100, 100, 1, 1));
+        expectIgnored(translated(input, 2, DOWN, 100, 100, 0, 1));
+        expectIgnored(translated(input, 2, DOWN, 250, 250, 0, 1));
+        expectIgnored(translated(input, 2, BUTTON_PRESS, 250, 250, 1, 1));
+        expectIgnored(translated(input, 2, UP, 250, 270, 0, 0));
+        expectIgnored(translated(input, 2, BUTTON_RELEASE, 250, 270, 1, 0));
+        System.out.println("PASS rejected contact stays retired across owner completion");
+    }
+
+    private static void competingTranslatedAliases() {
+        var input = new ProbeInput(2);
+        input.attach(1);
+        input.attach(2);
+        start(input, 200);
+        var conflict = translated(input, 2, DOWN, 200, 200, 0, 1);
+        expect(1, conflict.displacedSlot());
+        expect("competing-stream", conflict.displaced().phase());
+        expect(1, conflict.displaced().cancelled());
+        expect(0, conflict.displaced().click());
+        expect(null, conflict.result());
+        expectIgnored(translated(input, 2, BUTTON_PRESS, 200, 200, 1, 1));
+        expect(null, finish(input, 200, 220));
+        expectIgnored(translated(input, 2, UP, 200, 220, 0, 0));
+        expectIgnored(translated(input, 2, BUTTON_RELEASE, 200, 220, 1, 0));
+
+        expectIgnored(translated(input, 2, DOWN, 300, 300, 0, 1));
+        expect(1, translated(input, 2, BUTTON_PRESS, 300, 300, 1, 1).result().pressed());
+        expect("release-pending", translated(input, 2, UP, 300, 320, 0, 0).result().phase());
+        expect(1, translated(input, 2, BUTTON_RELEASE, 300, 320, 1, 0).result().click());
+
+        start(input, 400);
+        var ambiguous = translated(input, 2, CANCEL, 0, 410, 0, 0);
+        expect(1, ambiguous.displacedSlot());
+        expect("ambiguous-cancel", ambiguous.displaced().phase());
+        expect(1, ambiguous.displaced().cancelled());
+        expect(null, finish(input, 400, 420));
+        System.out.println("PASS genuine translated conflict cancels and fresh alias recovers");
+    }
+
+    private static ProbeInput.Decision translated(ProbeInput input, int slot, Action action,
+                                                   long down, long event, int button, int mask) {
+        return input.observe(sample(action, "A", down, event, button, mask), slot, 0x1002, 1, true, 10);
+    }
+
+    private static void expectIgnored(ProbeInput.Decision decision) {
+        expect(null, decision.result());
+        expect(0, decision.displacedSlot());
+        expect(null, decision.displaced());
     }
 
     private static void deviceChurn() {
