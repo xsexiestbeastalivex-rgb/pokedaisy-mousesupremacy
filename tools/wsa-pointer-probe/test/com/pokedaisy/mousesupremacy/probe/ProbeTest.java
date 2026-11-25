@@ -1,11 +1,16 @@
 package com.pokedaisy.mousesupremacy.probe;
 
-import static com.pokedaisy.mousesupremacy.probe.PointerState.Action.*;
-import static com.pokedaisy.mousesupremacy.probe.PointerState.OUTSIDE;
+import com.pokedaisy.mousesupremacy.pointer.DeviceAliases;
+import com.pokedaisy.mousesupremacy.pointer.PointerNormalizer;
+import com.pokedaisy.mousesupremacy.pointer.PointerState;
+import com.pokedaisy.mousesupremacy.pointer.WsaPointer;
+
+import static com.pokedaisy.mousesupremacy.pointer.PointerState.Action.*;
+import static com.pokedaisy.mousesupremacy.pointer.PointerState.OUTSIDE;
 import static com.pokedaisy.mousesupremacy.probe.Trace.fields;
 
-import com.pokedaisy.mousesupremacy.probe.PointerState.Action;
-import com.pokedaisy.mousesupremacy.probe.PointerState.Sample;
+import com.pokedaisy.mousesupremacy.pointer.PointerState.Action;
+import com.pokedaisy.mousesupremacy.pointer.PointerState.Sample;
 
 import java.util.List;
 import java.util.Map;

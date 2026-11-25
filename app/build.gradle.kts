@@ -198,7 +198,7 @@ android {
     // The dev build is a debug build: the debug overlay (exported PokeDaisyActivity, local co-op relay) plus its own name / icon.
     sourceSets["dev"].manifest.srcFile("src/debug/AndroidManifest.xml")
     sourceSets["dev"].res.srcDirs("src/debug/res", "src/dev/res")
-    sourceSets["main"].java.srcDirs("src/main/kotlin")
+    sourceSets["main"].java.srcDirs("src/main/kotlin", "../pointer-input/src/main/java")
     sourceSets["main"].assets.srcDir(layout.buildDirectory.dir("generated/licenses"))
     sourceSets["test"].java.srcDirs("src/test/kotlin", "../server/coop-relay/src/main/kotlin")
 

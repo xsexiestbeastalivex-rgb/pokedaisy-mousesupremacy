@@ -1,10 +1,15 @@
 package com.pokedaisy.mousesupremacy.probe;
 
-import static com.pokedaisy.mousesupremacy.probe.PointerState.Action.*;
-import static com.pokedaisy.mousesupremacy.probe.PointerState.OUTSIDE;
-import com.pokedaisy.mousesupremacy.probe.PointerState.Action;
-import com.pokedaisy.mousesupremacy.probe.PointerState.Result;
-import com.pokedaisy.mousesupremacy.probe.PointerState.Sample;
+import com.pokedaisy.mousesupremacy.pointer.DeviceAliases;
+import com.pokedaisy.mousesupremacy.pointer.PointerNormalizer;
+import com.pokedaisy.mousesupremacy.pointer.PointerState;
+import com.pokedaisy.mousesupremacy.pointer.WsaPointer;
+
+import static com.pokedaisy.mousesupremacy.pointer.PointerState.Action.*;
+import static com.pokedaisy.mousesupremacy.pointer.PointerState.OUTSIDE;
+import com.pokedaisy.mousesupremacy.pointer.PointerState.Action;
+import com.pokedaisy.mousesupremacy.pointer.PointerState.Result;
+import com.pokedaisy.mousesupremacy.pointer.PointerState.Sample;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -256,7 +261,7 @@ public final class WsaProbeTest {
     }
 
     private static void arbitration() {
-        var input = new ProbeInput(3);
+        var input = new PointerNormalizer(3);
         for (int i = 1; i <= 3; i++) input.attach(i);
         start(input, 100);
         expect(null, input.observe(sample(HOVER_MOVE, "A", 105, 105, 0, 0), 2, 0x2002, 3, true, 10).displaced());
@@ -288,7 +293,7 @@ public final class WsaProbeTest {
     private static void staleAliasTerminalOrders() {
         for (int stalePairPosition = 0; stalePairPosition < 3; stalePairPosition++) {
             for (boolean genericFirst : new boolean[]{false, true}) {
-                var input = new ProbeInput(2);
+                var input = new PointerNormalizer(2);
                 input.attach(1);
                 input.attach(2);
                 start(input, 200);
@@ -318,13 +323,13 @@ public final class WsaProbeTest {
         System.out.println("PASS stale translated alias in all tested terminal orders");
     }
 
-    private static void ignoreStalePair(ProbeInput input, Action first, Action second, int firstButton) {
+    private static void ignoreStalePair(PointerNormalizer input, Action first, Action second, int firstButton) {
         expectIgnored(translated(input, 2, first, 100, 120, firstButton, 0));
         expectIgnored(translated(input, 2, second, 100, 120, 1 - firstButton, 0));
     }
 
     private static void rejectedAliasCannotReopen() {
-        var input = new ProbeInput(2);
+        var input = new PointerNormalizer(2);
         input.attach(1);
         input.attach(2);
         start(input, 200);
@@ -345,7 +350,7 @@ public final class WsaProbeTest {
     }
 
     private static void competingTranslatedAliases() {
-        var input = new ProbeInput(2);
+        var input = new PointerNormalizer(2);
         input.attach(1);
         input.attach(2);
         start(input, 200);
@@ -374,12 +379,12 @@ public final class WsaProbeTest {
         System.out.println("PASS genuine translated conflict cancels and fresh alias recovers");
     }
 
-    private static ProbeInput.Decision translated(ProbeInput input, int slot, Action action,
+    private static PointerNormalizer.Decision translated(PointerNormalizer input, int slot, Action action,
                                                    long down, long event, int button, int mask) {
         return input.observe(sample(action, "A", down, event, button, mask), slot, 0x1002, 1, true, 10);
     }
 
-    private static void expectIgnored(ProbeInput.Decision decision) {
+    private static void expectIgnored(PointerNormalizer.Decision decision) {
         expect(null, decision.result());
         expect(0, decision.displacedSlot());
         expect(null, decision.displaced());
@@ -387,7 +392,7 @@ public final class WsaProbeTest {
 
     private static void deviceChurn() {
         var aliases = new DeviceAliases(1);
-        var input = new ProbeInput(1);
+        var input = new PointerNormalizer(1);
         var first = aliases.get(8, id -> "virtual", input::attach);
         expect(0L, aliases.get(9, id -> "other", input::attach).alias());
         start(input, 100);
@@ -407,16 +412,16 @@ public final class WsaProbeTest {
         expect(1, finish(input, 200, 230).click());
     }
 
-    private static Result translated(ProbeInput input, Sample sample) {
+    private static Result translated(PointerNormalizer input, Sample sample) {
         return input.observe(sample, 1, 0x1002, 1, true, 10).result();
     }
 
-    private static void start(ProbeInput input, long time) {
+    private static void start(PointerNormalizer input, long time) {
         expect(null, translated(input, sample(DOWN, "A", time, time, 0, 1)));
         expect(1, translated(input, sample(BUTTON_PRESS, "A", time, time, 1, 1)).pressed());
     }
 
-    private static Result finish(ProbeInput input, long down, long event) {
+    private static Result finish(PointerNormalizer input, long down, long event) {
         translated(input, sample(UP, "A", down, event, 0, 0));
         return translated(input, sample(BUTTON_RELEASE, "A", down, event, 1, 0));
     }

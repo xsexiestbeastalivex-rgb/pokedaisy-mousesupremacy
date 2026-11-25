@@ -54,6 +54,20 @@ class GameScreenView(
     var frames: GameScreenFrames? = null
         private set
     private var reserved: List<IntRect> = emptyList()
+    internal var observePointerLayout = false
+    internal var tracePointerLayout: (() -> Unit)? = null
+    internal var tracePointerDetach: (() -> Unit)? = null
+    private val pointerPreDraw = android.view.ViewTreeObserver.OnPreDrawListener {
+        tracePointerLayout?.invoke()
+        true
+    }
+    private var pointerObserver: android.view.ViewTreeObserver? = null
+    internal var pointerCompanion: Rect? = null
+        private set
+    internal var pointerOutsideDismiss = false
+        private set
+    internal var pointerChrome: List<Rect> = emptyList()
+        private set
 
     init { addView(contentView, LayoutParams(-1, -1)) }
 
@@ -92,7 +106,12 @@ class GameScreenView(
                                     .align(androidx.compose.ui.Alignment.TopEnd).padding(top = 12.dp, end = 12.dp))
                             }
                         },
+                        onPointerOcclusion = if (observePointerLayout) { companion, dismissOutside ->
+                            pointerCompanion = companion
+                            pointerOutsideDismiss = dismissOutside
+                        } else null,
                         onFrames = { current, chrome ->
+                            if (observePointerLayout) pointerChrome = chrome
                             frames = current
                             portraitInset = current.portrait?.topInset(panels.gripHeight) ?: 0
                             reserved = chrome.map { IntRect(it.left.toInt(), it.top.toInt(), it.right.toInt(), it.bottom.toInt()) }
@@ -105,6 +124,18 @@ class GameScreenView(
                 }
             }
         }
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        if (observePointerLayout) pointerObserver = viewTreeObserver.also { it.addOnPreDrawListener(pointerPreDraw) }
+    }
+
+    override fun onDetachedFromWindow() {
+        pointerObserver?.takeIf { it.isAlive }?.removeOnPreDrawListener(pointerPreDraw)
+        pointerObserver = null
+        tracePointerDetach?.invoke()
+        super.onDetachedFromWindow()
     }
 
     fun sideCompanion(content: (@Composable () -> Unit)?) { sideContent = content }

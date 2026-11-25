@@ -1,21 +1,21 @@
-package com.pokedaisy.mousesupremacy.probe;
+package com.pokedaisy.mousesupremacy.pointer;
 
-import static com.pokedaisy.mousesupremacy.probe.PointerState.Action.*;
-import static com.pokedaisy.mousesupremacy.probe.PointerState.OUTSIDE;
-import com.pokedaisy.mousesupremacy.probe.PointerState.Result;
-import com.pokedaisy.mousesupremacy.probe.PointerState.Sample;
+import static com.pokedaisy.mousesupremacy.pointer.PointerState.Action.*;
+import static com.pokedaisy.mousesupremacy.pointer.PointerState.OUTSIDE;
+import com.pokedaisy.mousesupremacy.pointer.PointerState.Result;
+import com.pokedaisy.mousesupremacy.pointer.PointerState.Sample;
 
 import java.util.Arrays;
 
-/** Arbitration for authoritative probe callbacks. No raw Android event is consumed here. */
-final class ProbeInput {
-    static final String STANDARD = "android-mouse";
-    static final String WSA = "wsa-experimental";
+/** Arbitrates authoritative Android pointer samples without dispatching or consuming platform events. */
+public final class PointerNormalizer {
+    public static final String STANDARD = "android-mouse";
+    public static final String WSA = "wsa-experimental";
     private static final int SOURCE_MOUSE = 0x2002;
     private static final int TOOL_MOUSE = 3;
     private static final int CLASS_POINTER = 2;
 
-    record Decision(Result result, String interpretation, int displacedSlot, Result displaced) {}
+    public record Decision(Result result, String interpretation, int displacedSlot, Result displaced) {}
 
     private final PointerState[] standard;
     private final WsaPointer[] wsa;
@@ -25,30 +25,30 @@ final class ProbeInput {
     private long wsaClosedThrough = -1;
     private int wsaOwner;
 
-    ProbeInput(int deviceLimit) {
+    public PointerNormalizer(int deviceLimit) {
         standard = new PointerState[deviceLimit + 1];
         wsa = new WsaPointer[deviceLimit + 1];
         directContact = new long[deviceLimit + 1];
         Arrays.fill(directContact, -1);
     }
 
-    void attach(int slot) {
+    public void attach(int slot) {
         standard[slot] = new PointerState();
         wsa[slot] = new WsaPointer();
     }
 
-    void detach(int slot) {
+    public void detach(int slot) {
         if (wsaOwner == slot) retireOwner(wsa[slot].latestEvent(), "device-detached");
         standard[slot] = null;
         wsa[slot] = null;
         directContact[slot] = -1;
     }
 
-    void fenceOpenings(long through) {
+    public void fenceOpenings(long through) {
         openingFence = Math.max(openingFence, through);
     }
 
-    Result invalidate(int slot, long through, String reason, boolean translated) {
+    public Result invalidate(int slot, long through, String reason, boolean translated) {
         directContact[slot] = -1;
         if (translated) {
             if (wsaOwner == slot) return retireOwner(through, reason);
@@ -58,7 +58,7 @@ final class ProbeInput {
         return standard[slot].invalidate(through, reason);
     }
 
-    Decision observe(Sample sample, int slot, int source, int tool, boolean wsaEnabled, float slop) {
+    public Decision observe(Sample sample, int slot, int source, int tool, boolean wsaEnabled, float slop) {
         boolean translated = WsaPointer.accepts(wsaEnabled, source, tool, slot);
         boolean mouse = tool == TOOL_MOUSE && (source & SOURCE_MOUSE) == SOURCE_MOUSE;
         boolean pointer = (source & CLASS_POINTER) != 0;
@@ -172,6 +172,12 @@ final class ProbeInput {
 
     private void closeThrough(long through) {
         wsaClosedThrough = Math.max(wsaClosedThrough, through);
+    }
+
+    /** Current buttonless occupancy survives between Activity callbacks. */
+    public boolean hasDirectContact() {
+        for (long contact : directContact) if (contact >= 0) return true;
+        return false;
     }
 
     private boolean hasCompetingContact(int slot, Sample sample) {

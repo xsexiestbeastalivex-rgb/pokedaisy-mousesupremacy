@@ -5,7 +5,7 @@ Numbers refer to the [system specifications](specifications/README.md). Build an
 | Phase | Deliverable | Dependencies and exit evidence |
 | --- | --- | --- |
 | 0 | Baseline, audit, traceable requirements, workflow and architecture | Pinned source, baseline checks, 13 specifications, [F1–F10 disposition](PROJECT_STATUS.md#independent-review-disposition) and owner approval |
-| 1 | Standalone ROM-free WSA pointer probe first. Follow with isolated dev-app routing and the minimal FireRed feasibility trace. | 01, 02–04, 11, 13 research. Satisfy the listed gates before building the battle feature. |
+| 1 | Standalone WSA pointer qualification accepted and merged. Phase 1C adds isolated dev-app routing observation and geometry. | 01, 02–04, 11, 13 research. Satisfy the listed gates before building the battle feature. |
 | 2 | Mouse Mode, ownership and projection, with narrow dialogue as an independent consumer proof | 01–05, 08, 11–13. Use separate conventional mouse, WSA and direct-touch adapters with shared semantics. Verify real stock controls, cancellation, actual routing and viewport before enabling production inputs. Dialogue can proceed independently of the battle slice. |
 | 3 | Native single-battle action and move menus | 02–06, 11–13 and Phase 1 gates. Verify observed readiness, native cursor/context, confirm/back and companion isolation. |
 | 4 | Original non-battle menus | 07, 08, 11, 12. Add per-menu state and scenarios, starting with the first reliable native menu. |
@@ -29,4 +29,4 @@ Use one exact English FireRed rev 1 ordinary single wild encounter [scenario](te
 4. **Native observation** captures exact ROM identity, actual ready state, active battler, action and move cursor, selectable slots and transition boundaries. Versions and evidence are retained with the scenario.
 5. **Execution and timing** run the [narrow experiment](test-scenarios/firered-battle.md#phase-1-feasibility-experiment). Prove ACTION hover to FIGHT with diagonal travel, one A to MOVE, native move PP/type update, and one B back. Verify applied release gaps, one interruption, one companion-owned press and one changed width. Record p95 before agreeing a native hover budget. The four action confirmations and one move confirmation belong in Phase 3.
 
-Phase 0 merged after owner approval. Phase 1B.5 passed the [replacement APK regression](PROJECT_STATUS.md#phase-1b5-corrected-probe-physical-regression). Independent re-review and owner approval remain required before merge. Actual app routing and exact-ROM readiness remain separate milestones. Phase 2 dialogue is not a dependency of Phase 3 battle.
+Phase 0 and Phase 1B merged after independent acceptance and owner approval. The standalone physical result remains scoped to its tested APK. Phase 1C requires exact dev packaging, physical app routing, save isolation and readiness evidence before diagnostic gameplay. [Phase 1C status](PROJECT_STATUS.md#phase-1c-application-integration)

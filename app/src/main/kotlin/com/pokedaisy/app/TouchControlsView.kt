@@ -114,6 +114,20 @@ class TouchControlsView(context: Context) : FrameLayout(context) {
         return p.items.map { android.graphics.RectF(it.left, it.top, it.right, it.bottom) }
     }
 
+    /** Diagnostic exclusions also cover the fallback pad's wider touch hit areas. */
+    internal fun pointerReservations(): List<com.pokedaisy.mousesupremacy.pointer.PointerLayout.Bounds> {
+        val model = hitModel ?: return emptyList()
+        if (!isShown) return emptyList()
+        val native = inputWindows?.pointerReservations().orEmpty()
+        val at = IntArray(2).also(::getLocationInWindow)
+        val reserved = native.ifEmpty {
+            TouchInputWindows.clusters(model, width, height).map { it.apply { offset(at[0], at[1]) } }
+        }
+        return reserved.map {
+            com.pokedaisy.mousesupremacy.pointer.PointerLayout.Bounds(it.left.toFloat(), it.top.toFloat(), it.right.toFloat(), it.bottom.toFloat())
+        }
+    }
+
     /** As [clearTop] / [clearBottom], for the controls across the columns [l, r) (px): a DS game's floating touch
      * screen keeps clear of only the ones it would sit under. */
     fun clearAcross(l: Float, r: Float): Pair<Int, Int> {
@@ -129,6 +143,8 @@ class TouchControlsView(context: Context) : FrameLayout(context) {
     private val tracker = com.pokedaisy.app.companion.ui.TouchPressTracker(com.pokedaisy.app.companion.ui.TouchPressed())
     private var hitModel: com.pokedaisy.app.companion.ui.TouchHitModel? = null
     private var inputWindows: TouchInputWindows? = null
+    internal var tracePadPointer: ((Int, Long) -> Unit)? = null
+    internal val pointerPadHeld: Boolean get() = inputWindows?.pointerContactHeld == true
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
     /** Nothing is open over the game (UI thread, asked before every draw): the input windows may take the fingers. */
@@ -160,7 +176,10 @@ class TouchControlsView(context: Context) : FrameLayout(context) {
         if (!TouchInputWindows.supported) return
         val show = visibility == VISIBLE && isAttachedToWindow
         if (!show && inputWindows == null) return
-        val windows = inputWindows ?: TouchInputWindows(this, tracker).also { inputWindows = it }
+        val windows = inputWindows ?: TouchInputWindows(this, tracker).also {
+            it.onPointerCallback = tracePadPointer
+            inputWindows = it
+        }
         windows.sync(hitModel.takeIf { show }, show && inputAllowed(), if (show) inputExclusions() else emptyList())
     }
 

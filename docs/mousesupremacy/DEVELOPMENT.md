@@ -26,6 +26,27 @@ Check the run SHA, artifact name and the `Source` commit in the bundled `build-i
 
 Phase 1 must exercise this procedure on the first packaging-relevant change and verify the downloadable artifact's bundled source SHA. The existing job uses pinned submodules and read-only repository permissions. It requires no retained signing, Firebase or upstream credentials.
 
+## Phase 1C application pointer checkout
+
+Use the exact-commit **MouseSupremacy development APK** with `com.pokedaisy.app.dev`, a verified x86_64 library on the WSA target, and the [ROM-free dev library bootstrap](TESTING.md#rom-free-launch-and-evidence). Complete the [pre-launch save-isolation gate](#pre-launch-save-isolation-gate) before opening a ROM. Use only a disposable device or approved disposable dev install. A signer conflict requires a clean disposable target.
+
+1. Verify the archive against the Actions digest and its `build-info.txt` source, package and signer against the downloaded APK. Check `SHA256SUMS` and both native ABI entries. Start the empty dev library and confirm it appears. Keep the official app and data outside this procedure.
+2. After the save gate passes, select the verified disposable copy from the dev library. To opt in before entering the game, choose exactly one marker in the dev app's private `files` directory. Use `ms_pointer_wsa` for the qualified WSA translation, `ms_pointer_android` for conventional mouse only, or `ms_pointer_touch` for enhanced direct-contact observation plus conventional mouse. Existing upstream dispatch stays active in all profiles.
+
+   ```powershell
+   # $pdaAdb, $pdaTarget and $pdaPackage come from the ROM-free bootstrap.
+   & $pdaAdb -s $pdaTarget shell run-as $pdaPackage mkdir -p files
+   & $pdaAdb -s $pdaTarget shell run-as $pdaPackage touch files/ms_pointer_wsa
+   # Enter the already verified disposable game from the dev library.
+   $pdaPid = (& $pdaAdb -s $pdaTarget shell pidof $pdaPackage | Out-String).Trim()
+   if ($pdaPid -notmatch '^\d+$') { throw 'Dev process unavailable' }
+   & $pdaAdb -s $pdaTarget logcat -d --pid=$pdaPid -s MsPointer:I
+   ```
+
+3. In the disposable game, start with ORIGINAL fit or STRETCH, a docked companion and no over-game HUD or virtual controls for calibration. Hover before pressing. In each of two companion widths, sample the visible top-left, bottom-right and adjacent letterbox or clipping boundary. Capture aligned screenshots if opted in. Expect native GBA coordinates only inside the eligible 240×160 picture. Press and release on the game and companion separately. Try crossing into chrome, resizing or changing focus during a press, then do a fresh press. Repeat with a HUD, dismissible companion overlay or touch controls visible. Confirm the upstream surface responds normally.
+4. Record `activity`, `view`, `layout`, `normalized` and `invalidate` records with the marked physical host action and visible result. `view ... activity=false` or `channel=native-pad` helps identify delivery outside the Activity dispatcher. Keep device identifiers and full logs private. Draw IDs represent the GL quad submitted to the surface, so use an aligned image for compositor-level proof. A trace alone provides no native cursor-latency or applied-input measurement. There is no MouseSupremacy key producer in this build.
+5. Capture lasts at most 90 seconds or 768 records per game Activity, with coalesced motion. Close the disposable game to leave the trace session and remove the marker with `adb -s <target> shell run-as com.pokedaisy.app.dev rm files/ms_pointer_wsa`. Stop with the specific failed prerequisite if the package, isolation, layout or host cannot be verified. The [FireRed experiment](test-scenarios/firered-battle.md#phase-1-feasibility-experiment) requires exact ROM identity, ready-state and applied-frame evidence beyond this checkout.
+
 ## Package, signing and save isolation
 
 - Upstream's `dev` variant keeps the Kotlin/JNI namespace `com.pokedaisy.app` and uses the installed ID `com.pokedaisy.app.dev`. Its name/icon and normal private storage are separate. It inherits an exported debug-only game activity and disables Crashlytics. The official APK uses `com.pokedaisy.app`. Review the source before a product package change. [Gradle variants](../../app/build.gradle.kts#L158), [debug manifest](../../app/src/debug/AndroidManifest.xml), [manifest](../../app/src/main/AndroidManifest.xml#L134).
@@ -73,15 +94,15 @@ Apply this workflow to substantial assignments. For a narrow, low-risk change, u
 2. Map the affected architecture. For complex stateful work, identify authority, identities, invariants, transitions, lifecycle boundaries, ambiguity and failures.
 3. Plan verification before coding. Pin the baseline, reproduce known defects where feasible, choose discriminating methods, and identify proof that needs hardware or the actual application. [Risk-based verification](TESTING.md#risk-based-verification)
 4. Implement the root-cause correction and preserve upstream behavior and compatibility outside the approved change.
-5. Run focused automated checks and applicable hosted compatibility jobs. Exercise negative cases and preserve reproducible failing inputs.
+5. Run focused tests while coding and applicable upstream quick checks at handover. Exercise negative cases and preserve reproducible failing inputs. Use hosted integration and merge checks as applicable. Obtain owner approval for full local suites.
 6. Have a separate internal reviewer where available try to disprove the design and test oracle. Give them the invariants, pinned source and ability to run their own checks. With no separate reviewer, run a structured adversarial self-review from a fresh checkout or separately constructed oracle and disclose the limitation.
 7. Resolve material findings autonomously. Repeat relevant tests and adversarial review after material corrections, and audit adjacent failures until the [pre-submission gate](../../.agents/skills/verify-mousesupremacy/SKILL.md) is satisfied.
-8. Submit the exact reviewed implementation and evidence for independent acceptance. Internal review supports this gate. Independent acceptance has its own verdict.
+8. Hand over the exact implementation SHA, evidence, and remaining gates for independent acceptance. Independent acceptance can proceed with external checks explicitly pending. Advance non-conflicting work while checks run. Avoid redundant builds and diagnose the evidenced cause before retrying a failed or cancelled job.
 9. Obtain scoped physical/runtime proof where acceptance requires it. Platform discovery needed to define requirements can occur earlier. Otherwise, finish automated and internal checks before asking the owner for runtime help.
-10. Record independent acceptance and any applicable physical gate before seeking owner approval and merge.
+10. Record the independent verdict and applicable physical proof separately. Before merge, applicable required checks must pass unless the owner authorizes a documented exception. Merge requires owner approval.
 11. Update persistent status, requirements, decisions and evidence. Record lessons that change future practice.
 
-The implementation agent owns design, test execution, routine debugging, corrections and evidence. The internal reviewer challenges the weakest claims and test oracle. The independent reviewer issues the acceptance verdict. The owner decides material scope or product direction changes, grants privileged access and approves merge or release. Escalate a genuine blocker the agent cannot resolve, such as inaccessible required hardware or a scope decision. Include the narrow decision or evidence needed and continue unaffected work.
+Prioritize approved gameplay functionality and reuse established diagnostic and build tooling. The implementation agent owns design, test execution, routine debugging, corrections and evidence. The internal reviewer challenges the weakest claims and test oracle. The independent reviewer issues the acceptance verdict. The owner decides material scope or product direction changes, grants privileged access and approves merge or release. Escalate a genuine blocker the agent cannot resolve, such as inaccessible required hardware or a scope decision. Include the narrow decision or evidence needed and continue unaffected work.
 
 ### Repeated-defect escalation
 

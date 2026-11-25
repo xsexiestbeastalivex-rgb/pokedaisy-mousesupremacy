@@ -1,16 +1,16 @@
-package com.pokedaisy.mousesupremacy.probe;
+package com.pokedaisy.mousesupremacy.pointer;
 
-import static com.pokedaisy.mousesupremacy.probe.PointerState.BUTTONS;
-import static com.pokedaisy.mousesupremacy.probe.PointerState.OUTSIDE;
-import static com.pokedaisy.mousesupremacy.probe.PointerState.Action.*;
-import com.pokedaisy.mousesupremacy.probe.PointerState.Sample;
+import static com.pokedaisy.mousesupremacy.pointer.PointerState.BUTTONS;
+import static com.pokedaisy.mousesupremacy.pointer.PointerState.OUTSIDE;
+import static com.pokedaisy.mousesupremacy.pointer.PointerState.Action.*;
+import com.pokedaisy.mousesupremacy.pointer.PointerState.Sample;
 
 /** Interprets the paired touch/generic representations observed on the selected WSA host. */
-final class WsaPointer {
+public final class WsaPointer {
     private static final int SOURCE_TOUCHSCREEN = 0x1002;
     private static final int TOOL_TYPE_FINGER = 1;
 
-    static boolean accepts(boolean enabled, int source, int tool, int slot) {
+    public static boolean accepts(boolean enabled, int source, int tool, int slot) {
         return enabled && source == SOURCE_TOUCHSCREEN && tool == TOOL_TYPE_FINGER && slot != 0;
     }
 
@@ -26,19 +26,19 @@ final class WsaPointer {
     private boolean clickEligible;
     private String region = OUTSIDE;
 
-    boolean active() {
+    public boolean active() {
         return start != null;
     }
 
-    long generation() { return active() ? start.downTime() : -1; }
-    long latestEvent() { return lastEvent; }
+    public long generation() { return active() ? start.downTime() : -1; }
+    public long latestEvent() { return lastEvent; }
 
-    boolean applies(Sample sample) {
+    public boolean applies(Sample sample) {
         return active() && sample.eventTime() >= start.downTime()
                 && (sample.isHover() || sample.downTime() <= 0 || sample.downTime() >= start.downTime());
     }
 
-    PointerState.Result observe(Sample sample, float slop) {
+    public PointerState.Result observe(Sample sample, float slop) {
         if (!sample.focused()) return null;
         if (sample.isHover()) return hover(sample);
         if (!sample.isContact()) return null;
@@ -150,18 +150,18 @@ final class WsaPointer {
                 : sample.actionButton() == button);
     }
 
-    PointerState.Result reject(Sample sample, String reason) {
+    public PointerState.Result reject(Sample sample, String reason) {
         if (active() && !applies(sample)) return null;
         retire(sample.downTime());
         return active() ? cancel(reason) : null;
     }
 
-    PointerState.Result invalidate(long through, String reason) {
+    public PointerState.Result invalidate(long through, String reason) {
         retire(through);
         return cancel(reason);
     }
 
-    PointerState.Result cancel(String reason) {
+    public PointerState.Result cancel(String reason) {
         var result = result(reason, setRegion(OUTSIDE), false, 0, 0, admittedButton(), 0, 0);
         close();
         return result;

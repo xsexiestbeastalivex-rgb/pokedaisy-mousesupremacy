@@ -1,37 +1,37 @@
-package com.pokedaisy.mousesupremacy.probe;
+package com.pokedaisy.mousesupremacy.pointer;
 
-import static com.pokedaisy.mousesupremacy.probe.PointerState.Action.*;
+import static com.pokedaisy.mousesupremacy.pointer.PointerState.Action.*;
 
-/** Standard Android absolute-mouse edge diagnostics. */
-final class PointerState {
-    static final int BUTTONS = 1 | 2 | 4;
-    static final String OUTSIDE = "outside";
+/** Conventional Android absolute-mouse edge reconciliation. */
+public final class PointerState {
+    public static final int BUTTONS = 1 | 2 | 4;
+    public static final String OUTSIDE = "outside";
 
-    enum Action {
+    public enum Action {
         DOWN, UP, MOVE, CANCEL, HOVER_ENTER, HOVER_MOVE, HOVER_EXIT, SCROLL,
         BUTTON_PRESS, BUTTON_RELEASE, POINTER_DOWN, POINTER_UP, OTHER
     }
 
-    record Sample(Action action, String hit, float x, float y, long downTime, long eventTime,
+    public record Sample(Action action, String hit, float x, float y, long downTime, long eventTime,
                   int pointerId, int pointerCount, int actionButton, int buttons, boolean focused, boolean batched) {
-        boolean isOpening() { return action == DOWN || action == BUTTON_PRESS; }
-        boolean isTerminal() { return action == UP || action == BUTTON_RELEASE; }
-        boolean isHover() { return action == HOVER_ENTER || action == HOVER_MOVE || action == HOVER_EXIT; }
+        public boolean isOpening() { return action == DOWN || action == BUTTON_PRESS; }
+        public boolean isTerminal() { return action == UP || action == BUTTON_RELEASE; }
+        public boolean isHover() { return action == HOVER_ENTER || action == HOVER_MOVE || action == HOVER_EXIT; }
 
-        boolean isContact() {
+        public boolean isContact() {
             return isOpening() || isTerminal() || action == MOVE || action == CANCEL
                     || action == POINTER_DOWN || action == POINTER_UP;
         }
 
         boolean samePoint(Sample other) { return hit.equals(other.hit) && x == other.x && y == other.y; }
         boolean hasPosition() { return Float.isFinite(x) && Float.isFinite(y); }
-        boolean hasContactTime() { return downTime > 0 && eventTime >= downTime; }
+        public boolean hasContactTime() { return downTime > 0 && eventTime >= downTime; }
         boolean isCancellationSignal() {
             return action == CANCEL || action == POINTER_DOWN || action == POINTER_UP || pointerCount != 1;
         }
     }
 
-    record Result(String phase, String region, boolean regionChanged, boolean firstUnpressedMove,
+    public record Result(String phase, String region, boolean regionChanged, boolean firstUnpressedMove,
                   int pressed, int released, int cancelled, int held, boolean beforeFirstPress,
                   boolean dragging, int click) {}
 
@@ -48,7 +48,7 @@ final class PointerState {
     boolean held() { return held != 0; }
     boolean holds(long downTime) { return held() && generation == downTime; }
 
-    Result observe(Sample sample) {
+    public Result observe(Sample sample) {
         if (!sample.focused()) return null;
         var action = sample.action();
         if (sample.isCancellationSignal()) {
@@ -133,7 +133,7 @@ final class PointerState {
         return result(phase, changed, firstMove, pressed, released, cancelled | superseded);
     }
 
-    Result invalidate(long through, String reason) {
+    public Result invalidate(long through, String reason) {
         boolean changed = !region.equals(OUTSIDE);
         region = OUTSIDE;
         int cancelled = held;
