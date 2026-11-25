@@ -18,6 +18,8 @@ Keep the original menu intact. Menu reconstruction, arbitrary UI clicks and gene
 
 The profile interprets the exact screen, subtype, ready state, cursor, enabled entries, visible scroll range and applicable commands from read-only observations. It supplies regions in native game pixels and a cursor transition model for this screen. The shared interaction layer resolves hover by semantic entry ID and sends a context-tagged request through the input owner. Conventional left-click confirms, right-click backs out where the game allows it and wheel or tabs navigate only where the verified layout defines those actions. Middle-click can open the game's Start menu from a verified safe field state when bound.
 
+The [shared direct-touch and drag contract](05-semantic-interaction.md#direct-touch-and-drag) applies to eligible native menus. Touch-down publishes the same selection feedback as hover. A valid release confirms only the original target. Vertical list drag and horizontal page drag require proven native bounds and suppress confirmation once past the threshold. Native wheel remains a separate admitted intent where delivered.
+
 State progresses from Unknown or transitioning to identified and ready, then selection pending and acknowledged by the observed cursor. Hover can navigate with directional keys while ready. Confirmation validates the same clicked target, context epoch and geometry epoch immediately before issuing one A pulse. A fresh submenu starts with fresh hit regions and input readiness. Re-evaluate a stationary pointer without a first click or keyboard input. Disabled visible rows can receive permitted hover feedback without a confirm. Freeze, focus loss, manual input, geometry or menu changes revoke pending operations and release held synthetic keys. A stable unsupported state, unknown cursor or unsuccessful bounded transition leaves native manual input available. No outside hit or unknown wheel binding issues gameplay input.
 
 ## Dependencies, performance and compatibility
@@ -28,8 +30,9 @@ Requires systems 02 ownership, 03 observation, 04 projection, 05 hit detection a
 
 1. In the approved Start menu and submenu, the pointer can hover as soon as the menu opens, including on entry to the viewport, without an activation input. The original cursor follows enabled rows without confirming. Verify from actual routed pointer events with a screenshot and cursor observations.
 2. An enabled row confirms exactly once. A disabled row, clipped row, transitional frame, old submenu target and click outside the game produce no A pulse. Test through fake snapshots and a real emulator replay.
-3. Right-click follows the native back path where verified. Wheel inputs stay scoped to the active list with known page bounds. Verify a wheel sequence at both ends of a bounded list and an unsupported scroll context. For planned tab/page surfaces, click a visible tab to the named page, then wheel one page where the game allows it. Check clipping on resize and companion ownership.
-4. Keyboard and controller can immediately resume ordinary control after an interrupted selection. Test focus, manual input, Mouse Mode disabled and reopened menu scenarios.
+3. Right-click follows the native back path where verified. Wheel inputs stay scoped to the active list with known page bounds. Verify a wheel sequence at both ends of a bounded list and an unsupported scroll context. For planned tab/page surfaces, click a visible tab to the named page, then verify a page drag and native wheel separately where each is supported. Check clipping on resize and companion ownership.
+4. After stock Android and actual router qualification, verify the selected menu with a real finger tap and drag, and with mouse drag. Check both supported axes, bounds, clipped rows, stationary touch, a return to the initial target after crossing slop, and cancellation followed by a fresh tap. No drag applies a confirm edge.
+5. Keyboard and controller can immediately resume ordinary control after an interrupted selection. Test focus, manual input, Mouse Mode disabled and reopened menu scenarios.
 
 ## Deferred work and outstanding decisions
 
