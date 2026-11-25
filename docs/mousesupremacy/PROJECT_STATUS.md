@@ -1,10 +1,10 @@
 # Initialization report and project status
 
-**Milestone** · Phase 0 review corrections prepared for independent re-review in [draft PR #1](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/pull/1). The 13 system specs are proposed contracts. The Phase 1 probe and gameplay work await Phase 0 approval.
+**Milestone** · Phase 0 passed independent review and owner approval. [PR #1](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/pull/1) merged at `4a1779f7e6609c689ac9deee3db75d9573a1bfd8`. Phase 1A is owner-authorized. The standalone probe builds and its host-independent checks pass. Physical Android and WSA evidence is outstanding.
 
 ## Baseline and evidence ledger
 
-Fork and upstream `main` and the peeled upstream `v1.6.2.1` tag all resolved at initialization to [`717f4f49979f4aa5c4c8f4cd64638a0fa935d844`](https://github.com/lidor30/pokedaisy/commit/717f4f49979f4aa5c4c8f4cd64638a0fa935d844). The annotated tag object is `a192bd1fbc7b161a11f2a31ba501fff8c15ae334`. Original initialization and hosted evidence pin [`3b546e558649145ee16943691eefdce5c7136d93`](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/commit/3b546e558649145ee16943691eefdce5c7136d93). This correction is on the same `docs/mousesupremacy-initialization` branch. The draft PR identifies the correction head. Native gitlinks include mGBA `26b7884bc25a5933960f3cdcd98bac1ae14d42e2`, rcheevos `1433173220a7eaede6a9ed7a18e94117be1821e0`, melonDS `b86390e4428bf38ce4c1ce0e9ca446d6d25955e8` and DSperate `ecb27c96a80dd2c4bf31a0316f9eef9354d73e04`.
+Fork and upstream `main` and the peeled upstream `v1.6.2.1` tag all resolved at initialization to [`717f4f49979f4aa5c4c8f4cd64638a0fa935d844`](https://github.com/lidor30/pokedaisy/commit/717f4f49979f4aa5c4c8f4cd64638a0fa935d844). The annotated tag object is `a192bd1fbc7b161a11f2a31ba501fff8c15ae334`. Original initialization and hosted evidence pin [`3b546e558649145ee16943691eefdce5c7136d93`](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/commit/3b546e558649145ee16943691eefdce5c7136d93). The merged Phase 0 corrections came from `docs/mousesupremacy-initialization`. Native gitlinks include mGBA `26b7884bc25a5933960f3cdcd98bac1ae14d42e2`, rcheevos `1433173220a7eaede6a9ed7a18e94117be1821e0`, melonDS `b86390e4428bf38ce4c1ce0e9ca446d6d25955e8` and DSperate `ecb27c96a80dd2c4bf31a0316f9eef9354d73e04`.
 
 | Evidence and scope | Result |
 | --- | --- |
@@ -15,7 +15,37 @@ Fork and upstream `main` and the peeled upstream `v1.6.2.1` tag all resolved at 
 | Historical local environment constraints | The combined local Android packaging attempt lost its Gradle daemon during native/dex work. The first desktop render daemon exited and the offline retry lacked runtime dependencies. Focused JVM and resource-capped online preview retries passed. The hosted dev job completed APK packaging. |
 | Historical upstream checks, upstream baseline | [Android unit/debug APK](https://github.com/lidor30/pokedaisy/actions/runs/45486103772/job/138778504992), [host core](https://github.com/lidor30/pokedaisy/actions/runs/45486103772/job/138778504913), [UI preview](https://github.com/lidor30/pokedaisy/actions/runs/45486103772/job/138778504985) and [official signed release](https://github.com/lidor30/pokedaisy/actions/runs/45493755661/job/138809176520) passed. Official package `com.pokedaisy.app`, arm64-v8a and armeabi-v7a. The [tag ROM-backed job](https://github.com/lidor30/pokedaisy/actions/runs/45493755661/job/138798756183) skipped. |
 | Fixture inspection | FireRed rev 1 scripted snapshot decodes to ACTION with expected cursors. Emerald snapshot has an in-battle flag and no matching handler. These are decoder results. [Fixture details](test-scenarios/firered-battle.md#inputs-and-provenance) |
-| Phase 1 evidence pending | APK installation/launch on WSA, resolved device save destinations and sentinel checks, physical pointer forwarding, PokeDaisy frontend routing, native FireRed readiness and applied input, replay and latency. The Phase 0 readouts measure source, fixture, build and procedural evidence. |
+| Later Phase 1 evidence pending | Dev-app device save destinations and sentinel checks, PokeDaisy frontend routing, native FireRed readiness and applied input, replay and latency. |
+
+## Phase 1A probe evidence
+
+The ROM-free build is pinned to [`64644c54b030a1611ca1fe9e24f82cae03e0181b`](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/commit/64644c54b030a1611ca1fe9e24f82cae03e0181b), based on the Phase 0 merge. The [Windows runbook](../../tools/wsa-pointer-probe/README.md) defines the scoped install, physical sequence and evidence review.
+
+| Evidence | Result |
+| --- | --- |
+| Package and build | [Run 45535716016](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/actions/runs/45535716016) succeeded with JDK 17, Android SDK 34 and Build Tools 35.0.0. [Download artifact 14985824862](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/actions/runs/45535716016/artifacts/14985824862). Archive SHA-256 `929d6ac53e9faca72ebb0f0bf124d7b2b38eaaf7d2f3a98f5d373b4ce890c1bb`. APK SHA-256 `41675fee470bcf73aa4ccf4fc7611c19d1c243ec60d3003295d90af89d9840af`. |
+| Downloaded APK inspection | APK v2 verified with one disposable RSA-2048 certificate, SHA-256 `7f945afbf507ed267e27e79e7003cc742b85fbaf4bb66c32bdbd5a8c6f4ca0d0`. Package `com.pokedaisy.mousesupremacy.probe`, label `MouseSupremacy Pointer Probe`, version 1.0 (1), min/target SDK 26/34, one exported launcher, debug enabled, backup disabled, resizable, and zero requested permissions or packaged native libraries. Embedded source SHA matches. |
+| JVM synthetic samples | `tools/wsa-pointer-probe/test.sh` passed 9/9 locally and in Actions. Covers opt-in/reset, coalescing/bounds/eviction counts, pre-press hover and region transitions, duplicate button representations, multiple buttons, spatial/focus/device/resize/cancel state and ambiguous input. |
+| Mocked ADB workflow | PowerShell 7.5.4 on Linux exercised Prepare and Collect with a fake ADB target, verified target scoping and ZIP contents, and rejected a tampered APK, unauthorized target and stale trace. Actual Windows PowerShell and WSA are pending. |
+| Android frontend / emulator / injected controls | Unavailable in the current environment. No attached Android runtime or Android Emulator, and the cloud machine exposes no KVM. No ADB input or injected Android framework control ran. |
+| Stock Android physical mouse | Unavailable in the current environment. Requires an authorized Android device with a connected mouse and a separate capture. |
+| Physical WSA mouse | Unavailable in the current environment. Requires the owner's existing WSA target and a physical mouse. Collect independent windowed and maximized traces. |
+
+The physical capability verdicts below describe the current evidence availability. Record a session ID and supporting event ranges for each completed test.
+
+| Capability | Physical WSA windowed | Physical WSA maximized | Stock Android physical mouse |
+| --- | --- | --- | --- |
+| Hover before the first click | Unavailable | Unavailable | Unavailable |
+| Coordinate alignment | Unavailable | Unavailable | Unavailable |
+| Hover transitions between regions | Unavailable | Unavailable | Unavailable |
+| Left button | Unavailable | Unavailable | Unavailable |
+| Right button | Unavailable | Unavailable | Unavailable |
+| Middle button | Unavailable | Unavailable | Unavailable |
+| Vertical scroll | Unavailable | Unavailable | Unavailable |
+| Horizontal scroll | Unavailable | Unavailable | Unavailable |
+| Window focus loss | Unavailable | Unavailable | Unavailable |
+| Gesture cancellation | Unavailable | Unavailable | Unavailable |
+| Behavior after resize | Unavailable | Unavailable | Unavailable |
 
 ## Findings and direction
 
@@ -46,4 +76,4 @@ Reviewed the correction against all 23 sections of the Master Project Initializa
 
 Record approved scope separately from implementation, build, unit, integration, runtime and acceptance evidence. Track merge and release separately. Reuse the baseline evidence for this document-only correction. The correction commit skips a redundant Actions build. GitHub can leave required checks pending on a skipped head. Before an approved merge, check the actual branch rules and obtain checks on an eligible head if required. [GitHub skip behavior](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/skip-workflow-runs)
 
-Request independent re-review of F1–F3 and the recorded dispositions before owner approval. The first implementation after approval is the [standalone ROM-free WSA probe](WSA_PROBE.md). Its results gate app integration and the [narrow FireRed feasibility experiment](test-scenarios/firered-battle.md#phase-1-feasibility-experiment). Owner decisions still ahead include retained identity/signing/versioning/updater policy and fork release access, plus optional visual-only hover and any wider release after the qualifying evidence.
+Run the [standalone probe](WSA_PROBE.md) on the existing WSA installation and capture both window modes. Add separate stock Android physical and injected controls as the corresponding targets become available. Use the measured capabilities to decide which host paths to take into app-routing verification. The [narrow FireRed experiment](test-scenarios/firered-battle.md#phase-1-feasibility-experiment) has its own prerequisites. Owner decisions still ahead include retained identity/signing/versioning/updater policy and fork release access, plus optional visual-only hover and any wider release after the qualifying evidence.

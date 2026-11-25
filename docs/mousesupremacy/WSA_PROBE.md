@@ -1,6 +1,6 @@
 # Windows Subsystem for Android pointer verification
 
-**Status:** Procedure proposed. Android source behavior has been audited at `717f4f49979f4aa5c4c8f4cd64638a0fa935d844`. Physical Windows Subsystem for Android (WSA) input remains unverified. The Linux initialization environment has no attached Android target, Android Emulator or `/dev/kvm`. Platform-tools were provisioned for build verification and ADB found no connected devices. The existing Compose Desktop preview exercises UI rendering on the JVM.
+**Status:** Phase 1A probe implemented and packaged. [Build and verification evidence](PROJECT_STATUS.md#phase-1a-probe-evidence) includes the exact source commit and APK identity. Physical WSA forwarding and the stock Android mouse control remain outstanding.
 
 This procedure provides evidence for [platform input](specifications/01-platform-input.md), [input ownership](specifications/02-input-ownership.md), [viewport geometry](specifications/04-viewport-geometry.md), [companion integration](specifications/12-companion-feedback.md) and [diagnostics](specifications/13-diagnostics.md). See [development](DEVELOPMENT.md) for APK setup and [testing](TESTING.md) for the other verification layers.
 
@@ -12,7 +12,11 @@ This procedure provides evidence for [platform input](specifications/01-platform
 - The renderer publishes wide frames with their camera windows and can retain an older displayed frame during a hold. The HUD's `onCoreRect` uses a static approximation for Expand. Use the transform of the frame actually shown. Check the DS bottom screen against its own touchscreen rectangle. The existing debug mirror changes the stage layout and should be off for single-monitor acceptance. [EmulatorView bounds](https://github.com/lidor30/pokedaisy/blob/717f4f49979f4aa5c4c8f4cd64638a0fa935d844/app/src/main/kotlin/com/pokedaisy/app/EmulatorView.kt#L78-L128) · [Renderer shown frame](https://github.com/lidor30/pokedaisy/blob/717f4f49979f4aa5c4c8f4cd64638a0fa935d844/app/src/main/kotlin/com/pokedaisy/app/EmulatorView.kt#L709-L765) · [DS bottom touch dispatch](https://github.com/lidor30/pokedaisy/blob/717f4f49979f4aa5c4c8f4cd64638a0fa935d844/app/src/main/kotlin/com/pokedaisy/app/NdsBottomScreen.kt#L267-L306) · [Debug mirror](https://github.com/lidor30/pokedaisy/blob/717f4f49979f4aa5c4c8f4cd64638a0fa935d844/app/src/main/kotlin/com/pokedaisy/app/PokeDaisyActivity.kt#L2469-L2484)
 - Microsoft removed WSA and the Amazon Appstore from the Microsoft Store on March 5, 2025. Use the existing WSA installation as the first test target and capture its exact version. Windows host forwarding remains a separate test result from the Android contracts. [Microsoft availability](https://support.microsoft.com/en-us/windows/apps/mobileapps/install-mobile-apps-and-the-amazon-appstore-on-windows) · [Microsoft WSA Developer Mode](https://support.microsoft.com/en-us/windows/apps/mobileapps/manage-settings-for-mobile-apps-on-windows)
 
-## First experiment and implementation scope
+## Phase 1A Windows workflow
+
+Use the [probe runbook](../../tools/wsa-pointer-probe/README.md) and the PowerShell runner included in the [verified artifact](PROJECT_STATUS.md#phase-1a-probe-evidence). Select the exact WSA Developer Mode endpoint, then use Prepare, perform the marked physical sequence and use Collect. Repeat in a fresh maximized run. The probe has package `com.pokedaisy.mousesupremacy.probe` and stores only its own opt-in diagnostic export. No game storage gate applies.
+
+## Approved experiment and implementation scope
 
 Build a small, separately identified Android debug probe APK under the fork on a follow-up branch. It needs one Activity, two adjacent labeled regions and an opt-in, bounded observation log. It requires no ROM, emulator core, native ABI libraries, network permission or production app changes. A separate debug package also avoids scheduling the full native emulator build just to test Windows event forwarding. Use an existing Android build toolchain and the upstream minimum SDK for the first run. Pin the probe's source commit and record the APK hash. Remove the probe from the host after testing if the tester no longer needs it.
 
@@ -20,35 +24,13 @@ Observe Activity touch, generic motion, key and window-focus dispatch and the te
 
 Use a stock Android device with a connected mouse as the forwarding/control comparison. Qualify the existing WSA host separately with a physical Windows mouse. Record unavailable hardware as a skipped comparison with a concrete prerequisite. If the probe shows an input-source or callback difference, retain the original trace before changing the Android adapter. Once host delivery is known, add passive, debug-only instrumentation at PokeDaisy's actual game surface and UI ownership boundaries to check where the same events are routed. Keep the existing keyboard, controller and touchscreen paths active during this second experiment.
 
-## Target and package checks
+## Target and package checks for later app routing
 
-On the Windows 11 PC with the existing WSA installation, start an Android app to wake the subsystem and check the endpoint in WSA Developer Mode. Use the actual endpoint instead of assuming a port. Select one authorized WSA target, especially if ADB also lists an emulator or phone.
-
-```powershell
-$pdAdb = 'C:\platform-tools\adb.exe'
-& $pdAdb devices -l
-$pdWsaTarget = Read-Host 'WSA ADB target shown in devices or WSA Developer Mode'
-# For a WSA TCP endpoint that is not already connected:
-# & $pdAdb connect $pdWsaTarget
-& $pdAdb -s $pdWsaTarget get-state
-& $pdAdb -s $pdWsaTarget shell getprop ro.build.version.sdk
-& $pdAdb -s $pdWsaTarget shell getprop ro.product.cpu.abilist
-& $pdAdb -s $pdWsaTarget shell pm list packages com.pokedaisy.app
-Get-AppxPackage '*WindowsSubsystemForAndroid*' | Select-Object Name,Version
-```
-
-Use `connect` only to attach a TCP endpoint that ADB has yet to connect to. Continue once the target reports `device`. If it is `unauthorized`, approve the local Android debugging prompt and recheck. If the connection is refused, wake WSA and recheck its current endpoint and Developer Mode. Record Windows build, WSA package version, Android SDK level, guest ABI list, mouse type and Windows display scaling. Keep device serials and connection addresses out of submitted traces.
-
-Install the standalone probe under its own package ID. For the later PokeDaisy integration run use the upstream `dev` variant, whose package ID is `com.pokedaisy.app.dev`. Obtain and verify the [development APK for the intended source commit](DEVELOPMENT.md#exact-commit-development-apks) before installing. After installation, complete the [pre-launch save-isolation gate](DEVELOPMENT.md#pre-launch-save-isolation-gate) before opening any ROM, including one launched by a shortcut or resume intent. The standalone probe remains usable without this game-storage gate. The existing build includes `arm64-v8a` by default and adds `x86_64` only with the flag. Select the ABI based on the guest rather than the Windows CPU alone. Preserve the original `com.pokedaisy.app` installation and use a separate local copy of any fixture or save. If the installed dev package has a different signing certificate, stop the update and resolve signing or test identity before touching its data. [ABI flags](https://github.com/lidor30/pokedaisy/blob/717f4f49979f4aa5c4c8f4cd64638a0fa935d844/app/build.gradle.kts#L79-L93) · [Dev build type](https://github.com/lidor30/pokedaisy/blob/717f4f49979f4aa5c4c8f4cd64638a0fa935d844/app/build.gradle.kts#L167-L175) · [Upstream dev app and shared-folder caveat](https://github.com/lidor30/pokedaisy/blob/717f4f49979f4aa5c4c8f4cd64638a0fa935d844/docs/DEVELOPMENT.md#L4004-L4009)
-
-After verifying APK SHA-256 and using the target from the previous section, install each APK on its applicable test run. Apply the package, ABI and signer checks above before installing the integration build. Use a clean dev package or a known matching retained development signer for updates.
-
-```powershell
-& $pdAdb -s $pdWsaTarget install .\mousesupremacy-pointer-probe.apk
-& $pdAdb -s $pdWsaTarget install .\pokedaisy-dev.apk
-```
+For the later PokeDaisy integration run, obtain and verify the exact-commit [development APK](DEVELOPMENT.md#exact-commit-development-apks) with package `com.pokedaisy.app.dev`. Select the ABI based on the authorized guest. The upstream build includes `arm64-v8a` by default and adds `x86_64` with the build flag. A signer mismatch requires resolving the dev build identity before any update. Complete the [pre-launch save-isolation gate](DEVELOPMENT.md#pre-launch-save-isolation-gate) before opening any ROM in that follow-up. [ABI flags](https://github.com/lidor30/pokedaisy/blob/717f4f49979f4aa5c4c8f4cd64638a0fa935d844/app/build.gradle.kts#L79-L93) · [Dev build type](https://github.com/lidor30/pokedaisy/blob/717f4f49979f4aa5c4c8f4cd64638a0fa935d844/app/build.gradle.kts#L167-L175)
 
 ## Physical mouse sequence
+
+Use the [standalone steps](../../tools/wsa-pointer-probe/README.md#physical-sequence) for Phase 1A. The exercise table below also covers the later game, companion and viewport integration run.
 
 Run distinct sessions with the same bounded diagnostic fields and explicit provenance labels. Android source/tool values describe what reached the guest.
 
