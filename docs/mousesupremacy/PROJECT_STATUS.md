@@ -128,6 +128,10 @@ The [scoped hosted run](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mou
 
 Keep the earlier missing raw Activity callbacks after refocus as a monitored Phase 1C delivery risk. If it recurs, correlate a marked host click with focus, raw Activity/view callbacks and normalized output. The F2 fix is ready for targeted independent sign-off. Owner approval still gates merge.
 
+## Permanent engineering process
+
+Phase 1B exposed a gap between reproducing known counterexamples and proving the ordering invariant across aliases and lifecycle boundaries. The repository now requires specification-first design and explicit invariants for complex state, systematic risk-based tests, internal adversarial review with autonomous correction and re-verification, and a pre-submission gate. These instructions apply to future phases. A second material defect in the same class triggers architectural reassessment and systematic regression coverage. Preserve the distinction between internal review, independent acceptance, physical evidence and owner approval. This keeps routine debugging in the implementation loop and reserves owner involvement for actual decisions or device-specific proof. [Engineering lifecycle](DEVELOPMENT.md#engineering-lifecycle) · [Test methods](TESTING.md#risk-based-verification) · [Pre-submission gate](../../.agents/skills/verify-mousesupremacy/SKILL.md)
+
 ## Findings and direction
 
 Reuse upstream ROM fingerprinting, battle reads, frame-driven inputs, render geometry, companion layouts, field snapshots and capture. Before enabling a capability, prove the actual host event, displayed transform, sole input owner and ROM readiness. Movement additionally needs legal walkable edges and active entity contact rules. [Source audit](UPSTREAM_AUDIT.md) · [Architecture](ARCHITECTURE.md)

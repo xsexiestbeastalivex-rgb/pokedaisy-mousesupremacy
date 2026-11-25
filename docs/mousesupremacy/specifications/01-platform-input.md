@@ -4,7 +4,7 @@
 
 ## Purpose and scope
 
-Deliver a platform-neutral pointer and contact stream for Android, prioritizing the existing WSA host. Cover enter, move, button edges, scroll, exit, focus and cancellation. Implement Android first. Native desktop adapters, gameplay policy and pointer capture are outside this system.
+Standard Android input APIs are the baseline for a platform-neutral pointer and contact stream. Cover enter, move, button edges, scroll, exit, focus and cancellation. The owner's existing WSA installation is the primary development and runtime acceptance target. Keep WSA translation and compatibility workarounds inside the WSA adapter. Shared gameplay interaction consumes normalized events and capabilities that apply equally to physical Android and other Android emulators. Additional emulator adapters require demonstrated compatibility differences. [Architecture and verification scope](../ARCHITECTURE.md#android-native-input-and-wsa-first-verification)
 
 ## Upstream and dependencies
 
@@ -16,13 +16,13 @@ Normalize an event with source class, device alias, window-local coordinates, mo
 
 The conventional mouse adapter recognizes Android mouse source and tool, reconciles duplicate edges and current button masks, and exposes native wheel axes where present. The WSA adapter is explicitly profiled for the translated touchscreen/finger shape observed on the tested guest. Its probe opening and terminal each need matching touch and generic observations. Either terminal clears held state. Missing, stale or contradictory endings cannot confirm. The probe retains a router-wide ordering boundary across owners, completed contacts and slot reuse. Terminal-first delivery retires the generation. Stale or tied generations cannot reopen after the boundary. New valid input can recover after lost terminals. [Ordering and lifecycle contract](../WSA_PROBE.md#translated-contact-ordering) The probe's standard edge diagnostics and WSA drag/click evidence have separate grades. [Probe evidence](../PROJECT_STATUS.md#phase-1b4-review-corrections)
 
-Direct Android touch uses its own opt-in adapter with a contact generation and selection at touch-down under [the shared gesture contract](05-semantic-interaction.md#direct-touch-and-drag). Keep stylus and joystick on their applicable upstream routes. Preserve ordinary and DS touch, virtual controls, companion and manual keyboard/controller ownership. Wheel-shaped translated swipes carry no known origin at the Android contact layer.
+Direct Android touch uses its own opt-in adapter with a contact generation and selection at touch-down under [the shared gesture contract](05-semantic-interaction.md#direct-touch-and-drag). Keep stylus and joystick on their applicable upstream routes. Reuse ordinary and DS touch, virtual controls, companion, manual keyboard/controller and the emulator input infrastructure. Wheel-shaped translated swipes carry no known origin at the Android contact layer.
 
 Cancel affected generations on spatial exit, focus, view/device change, geometry invalidation and plausible competing input. Keep in-bounds press-associated hover exit distinct. Use finite position and bounded histories. Coalesce superseded moves and retain action, lifecycle and layout boundaries.
 
 ## Performance and compatibility
 
-Keep the Android callback path small. It must enqueue or publish in constant work and avoid game-state scans. Measure ordered delivery and frame latency with and without the companion. Record each host's actual event fields and button support. When hover availability is unknown, keep hover capability unavailable on that host.
+Keep the Android callback path small. It must enqueue or publish in constant work and avoid game-state scans. Measure ordered delivery and frame latency with and without the companion. Record each host's actual event fields and button support. Scope compatibility claims to environments and capabilities that were tested. When hover availability is unknown, keep hover capability unavailable on that host.
 
 ## Acceptance and tests
 

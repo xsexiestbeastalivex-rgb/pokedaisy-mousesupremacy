@@ -5,8 +5,18 @@ description: Verify PokeDaisy MouseSupremacy changes and reproduce input, viewpo
 
 # Verify MouseSupremacy
 
-1. Identify the requirement ID, target ROM fingerprint, baseline commit and scope. Read `docs/mousesupremacy/PROJECT_STATUS.md` and the applicable spec.
-2. Select the smallest evidence layer in `docs/mousesupremacy/TESTING.md` that can disprove the claim. Use the named upstream test or headless scenario first, then exercise the actual frontend for pointer delivery and ownership. Keep physical WSA and synthetic input evidence separate.
-3. Record the observed frame or generation, intended target, key edges and resulting state. Include one rejected or interrupted input case. Capture an aligned screenshot when making a visual claim.
-4. Confirm the scenario actually ran. Name each missing prerequisite and skipped assertion. Keep any commercial ROM, save and unredacted trace outside Git.
-5. Review the diff for unsupported inputs, concurrent ownership, stale state and upstream regressions. Record the command, result, build and next unresolved proof in the PR or project status.
+Use the [engineering lifecycle](../../../docs/mousesupremacy/DEVELOPMENT.md#engineering-lifecycle) and [risk-based testing guidance](../../../docs/mousesupremacy/TESTING.md#risk-based-verification). Use the smallest evidence layer capable of disproving each claim.
+
+1. Pin the governing requirement, approved scope, acceptance criteria, baseline, host and ROM or fixture identity. For complex stateful systems, write down the invariants, authority, states, transitions, lifecycle boundaries and plausible failures before implementing.
+2. Reproduce known defects where practical. Test one ordinary valid case and deliberate incorrect, interrupted and competing cases. For event-driven systems, use bounded systematic histories with per-step safety assertions and fresh recovery. Show a representative mutation is caught where practical.
+3. Audit the related failure class after a material defect. Apply [repeated-defect escalation](../../../docs/mousesupremacy/DEVELOPMENT.md#repeated-defect-escalation) at the second material defect. For substantial work use a separate internal adversarial reviewer when available. Otherwise run and disclose a structured self-review. Correct material findings, rerun relevant tests and repeat review.
+4. Record exact commands, implementation SHA and build identity, expected and actual outcomes, evidence layer, counts and limitations. For generated cases record bounds or seed and runtime. For runtime evidence retain the frame or generation, target, emitted edges and observed result. Use aligned imagery for visual claims. Keep private ROMs, saves and full traces outside Git.
+
+## Pre-submission checklist
+
+- [ ] Scope, specifications and acceptance criteria are satisfied. Relevant invariants and material failure modes are documented.
+- [ ] Tests exercise normal, negative and conflicting behavior, prior failures, related defect classes and fresh recovery.
+- [ ] Internal adversarial verification and its availability are recorded. Material findings were corrected and verification repeated.
+- [ ] Applicable automated and hosted checks pass. The exact source, build and artifact are verified. Runtime gates are evidenced or explicitly outstanding. Compilation, unit tests, model replay, physical runs and production acceptance have distinct claims.
+- [ ] Upstream behavior and compatibility are verified at the applicable layer. Unsupported cases, skipped assertions and remaining limits are explicit.
+- [ ] Requirements, decisions and project status reflect the evidence. The implementation is ready for independent acceptance and the remaining owner decisions are genuine gates.

@@ -1,10 +1,14 @@
 # Proposed architecture
 
-Build the first slice inside the Android host and share pure Kotlin logic at established `shared/` boundaries when a second consumer or tests justify it. Keep Android `MotionEvent`, Compose layout and JNI types out of the interaction decisions. Reuse the upstream module source lists and `GameSession` lifecycle where the implementation fits. Retain the qualified standalone WSA host as priority. Qualify Windows-hosted Android alternatives only if an essential capability materially fails or the host is unavailable. Evaluate SDL integration separately after Android evidence and a parity review.
+## Android-native input and WSA-first verification
+
+Build the first slice inside the Android host on standard Android input APIs. The owner's existing WSA installation is the primary development test and runtime acceptance environment. Isolate host translation and compatibility workarounds in the WSA input adapter. Shared interaction logic consumes normalized positions, generations, edges and capability flags. It has no dependency on WSA callback shapes or translation rules.
+
+Reuse PokeDaisy touchscreen, keyboard, controller, and emulator-input infrastructure, along with the upstream module source lists and `GameSession` lifecycle where they fit. Keep `MotionEvent`, Compose layout and JNI types out of shared interaction decisions. Physical Android devices and other Android emulators use the same shared gameplay interaction systems through the Android baseline. Add an emulator-specific adapter only when a demonstrated compatibility difference requires one. Qualify each environment independently, including stock Android mouse and touch controls before broader production compatibility. Evaluate a fallback if an essential WSA capability materially fails or the host becomes unavailable. Native SDL still requires its own parity review. [Platform decision](DECISIONS_AND_RISKS.md) · [Platform input contract](specifications/01-platform-input.md)
 
 | Boundary | Responsibilities and likely integration |
 | --- | --- |
-| Platform pointer | Conventional mouse, explicitly profiled WSA translation, and opt-in direct touch have separate adapters. Normalize positions and generation, button/contact edges, wheel where delivered, focus and cancellation. |
+| Platform pointer | Standard Android mouse and opt-in direct touch use the Android baseline. A separate WSA adapter handles verified translation. Normalize positions and generation, button/contact edges, wheel where delivered, focus and cancellation. |
 | Ownership | Apply Mouse Mode, topmost UI ownership and manual-input priority. Invalidate requests on focus loss, lifecycle or layout change. Preserve touch and controller paths. |
 | Game observation | Reuse exact ROM identification and existing readers. Collect bounded, read-only action observations at a frame boundary. Distinguish unavailable values from valid zero. UI telemetry remains useful to display, but may be stale at input time. |
 | Projection | Publish the actual displayed picture transform and exclusions. Project window coordinates into the intended game screen and native pixel domain. Publish world projection only when camera and map identity are proven. |

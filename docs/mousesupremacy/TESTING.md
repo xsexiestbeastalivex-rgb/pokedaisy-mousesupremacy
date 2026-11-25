@@ -12,11 +12,37 @@ Use the smallest evidence layer that exercises the requirement. Record app SHA, 
 | Regression | Compare Mouse Mode off behavior against the matched baseline. Cover keyboard, controller, DS touch, HUD, companion resize, original menus, zoom and expansion per claimed scope. |
 | User acceptance | Use only for host- or hardware-specific evidence if no agent session can access it. Use compact scripted steps with expected outcomes and exact evidence requests. |
 
+## Risk-based verification
+
+Choose methods based on statefulness, complexity, consequence, regression risk and feasibility. Each test should be able to falsify a stated claim. An ordinary localized change can use focused unit and regression tests. Stateful arbitration needs checks throughout a bounded history, including interruption and later recovery.
+
+| Method | Appropriate use |
+| --- | --- |
+| Conventional unit | Check a local rule or pure transformation with known inputs and expected outputs. |
+| Boundary values | Check equality, just-inside and just-outside limits, tolerance and coordinate clipping. |
+| Negative and failure paths | Exercise missing, malformed, contradictory and unsupported inputs, interruptions and recovery. |
+| Architectural invariants | Assert safety after every transition and liveness after a fresh eligible sequence. |
+| Property-based | Generate bounded inputs and assert a relation such as no duplicate confirmation or projection round-trip. Record seed or generator bounds. |
+| Model-based | Compare behavior with an independently expressed reference model or allowed transitions. |
+| Deterministic permutations | Vary callback orders, aliases, duplicate or missing events and lifecycle boundaries systematically. |
+| Deterministic fuzz | Explore a wider input space with fixed seeds and explicit bounds. Retain each failing seed and the smallest practical reproducer. |
+| Mutation | Break a representative guarantee deliberately and prove that the intended assertion catches it. |
+| Differential | Compare matched outputs and intermediate decisions against upstream or the previously verified implementation. |
+| Recorded runtime replay | Re-run sanitized observations to detect model regressions. Record provenance and which device behavior the replay omits. |
+| Integration | Exercise boundaries between the router, renderer, application and core and assert the identity and effect at each boundary. |
+| End to end | Exercise the actual frontend, emulator and native interaction with scoped runtime evidence. |
+| Runtime performance | Measure responsiveness, frame pacing and resource overhead under matched settings and representative load. |
+| Compatibility | Check supported platform, ABI, ROM, input and layout combinations and compare upstream behavior when the feature is off. |
+
+For input arbitration, exercise state and event order across aliases, competing streams and lifecycle transitions. For native menus, test readiness, ownership, target validity and stale confirmation. For game observation, use reference fixtures, cross-field consistency, version boundaries and failure paths. For pathfinding, test legal movement, reachability and changing obstacles. For NPC interaction, cover navigation, facing, readiness and interruption. For shared rendering, compare coordinate transforms, resizing and viewport boundaries against the verified baseline.
+
+For generated sequences, state the domain, bounds, independent oracle and omitted combinations. Report sequence counts, runtime and exact source. Include adverse order, cancellation and fresh recovery where they matter. Run a representative deliberate defect when practical to check that the oracle detects the failure class. Keep build, synthetic, model replay, physical and production evidence distinct. See the [pre-submission gate](../../.agents/skills/verify-mousesupremacy/SKILL.md) for what the implementation agent records.
+
 ## Phase 1 safe bootstrap
 
 ### ROM-free launch and evidence
 
-Use the [Phase 1B.4 signed probe artifact and independent digest](PROJECT_STATUS.md#phase-1b4-review-corrections) for the short [windowed and maximized regression](../../tools/wsa-pointer-probe/README.md#phase-1b4-minimal-physical-regression). The original Phase 1A APK and the physically exercised Phase 1B.2 APK have historical entries with their own exact evidence. Record the probe package and launcher, Android target and host provenance for the run. For a baseline PokeDaisy integration smoke check, use a verified `com.pokedaisy.app.dev` artifact, a clean disposable instance or known disposable dev install, and an empty dev library. Start only the dev library launcher, without a ROM, URI, extras, imported data or a retained game task. The source manifest declares `LibraryActivity` as the launcher. [Development artifact and storage prerequisites](DEVELOPMENT.md#pre-launch-save-isolation-gate) · [launcher component](../../app/src/main/AndroidManifest.xml#L72)
+When a probe change requires physical regression, select its exact signed artifact and independently recorded digest from the [project evidence ledger](PROJECT_STATUS.md). Adapt the [windowed and maximized procedure](../../tools/wsa-pointer-probe/README.md#phase-1b4-minimal-physical-regression) to the changed behavior. Keep prior physical runs attached to their original APKs. Record the probe package and launcher, Android target and host provenance for the run. For a baseline PokeDaisy integration smoke check, use a verified `com.pokedaisy.app.dev` artifact, a clean disposable instance or known disposable dev install, and an empty dev library. Start only the dev library launcher, without a ROM, URI, extras, imported data or a retained game task. The source manifest declares `LibraryActivity` as the launcher. [Development artifact and storage prerequisites](DEVELOPMENT.md#pre-launch-save-isolation-gate) · [launcher component](../../app/src/main/AndroidManifest.xml#L72)
 
 The following PowerShell example assumes a verified artifact is already installed in the clean test scope. Select the exact Android target locally from `adb devices -l` and keep its serial out of shared evidence.
 
