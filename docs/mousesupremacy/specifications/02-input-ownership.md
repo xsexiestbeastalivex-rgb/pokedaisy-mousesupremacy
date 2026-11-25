@@ -46,4 +46,4 @@ Use an integration fake sink with a per-step mask ledger before enabling gamepla
 
 ## Open work
 
-Phase 1 identifies the concrete hook, forward-step correlation and measured pulse/release/timing with the [FireRed feasibility experiment](../test-scenarios/firered-battle.md#phase-1-feasibility-experiment). Phase 2 implements and verifies the reusable contract before the Phase 3 battle slice. No second module or general input service is required to specify this boundary.
+The native battle slice uses the Android final-mask boundary and scoped lease. Verify applied and swap-correlated timing with the [same exact-ROM scenario](../test-scenarios/firered-battle.md#first-gameplay-apk-checkout). Qualify new contexts independently using the same arbiter.

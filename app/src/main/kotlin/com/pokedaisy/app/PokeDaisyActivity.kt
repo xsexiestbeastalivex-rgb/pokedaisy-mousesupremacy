@@ -2887,7 +2887,7 @@ class PokeDaisyActivity : Activity() {
             }
             // The screen shows finished frames only (a copy), never the one being drawn.
             onFrame = {
-                view.publishFrame(battleMouseSample)
+                view.publishFrame(battleMouseSample, battleMouseWindow)
                 if (romIsNds) NdsBottomFrame.publish()
             }
             onStateResult = { action, slot, ok ->
@@ -5801,20 +5801,22 @@ class PokeDaisyActivity : Activity() {
         val clip = view.pointerVisibleBounds()
         view.getLocationInWindow(at)
         val picture = view.pointerPicture?.takeIf {
-            clip != null && !view.wide && view.overlay == null && !view.holdFrame() &&
+            clip != null && (mousePointerTrace?.battleMouse != null || !view.wide) && view.overlay == null && !view.holdFrame() &&
                 !romIsNds && !romIs3ds && !romIsGameBoy && stage.viewport.skinGame == null &&
                 it.width == view.width && it.height == view.height
         }
-        val quad = picture?.quad?.let {
+        fun viewRect(rect: com.pokedaisy.mousesupremacy.pointer.PointerLayout.Bounds) =
             com.pokedaisy.mousesupremacy.pointer.PointerLayout.Bounds(
-                it.left() + at[0], it.top() + at[1], it.right() + at[0], it.bottom() + at[1],
+                rect.left() + at[0], rect.top() + at[1], rect.right() + at[0], rect.bottom() + at[1],
             )
-        }
+        val quad = picture?.quad?.let(::viewRect)
+        val visibleTexture = picture?.texture?.let(::viewRect)
+        val pictureClip = if (clip != null && visibleTexture != null) clip.intersection(visibleTexture) else clip
         val layout = com.pokedaisy.mousesupremacy.pointer.PointerLayout(
             bounds, stage.pointerCompanion?.let(::windowRect), chrome, touchControls.pointerReservations(),
             stage.pointerOutsideDismiss || !touchWindowsAllowed() || touchControls.pointerPadHeld || debugMirror,
             pointerHudOccludes || performanceShown.value || hud.visibility == View.VISIBLE,
-            clip, quad, picture?.transform ?: -1L,
+            pictureClip, quad, picture?.transform ?: -1L,
         )
         return MousePointerTrace.Scene(layout, picture?.frame)
     }

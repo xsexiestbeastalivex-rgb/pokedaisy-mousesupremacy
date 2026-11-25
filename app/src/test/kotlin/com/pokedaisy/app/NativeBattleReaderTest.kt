@@ -1,19 +1,21 @@
 package com.pokedaisy.app
 
 import com.pokedaisy.app.companion.data.MemoryReader
-import com.pokedaisy.app.mouse.FireRedBattleMouse.Menu
-import com.pokedaisy.app.mouse.FireRedBattleMouse.Native
+import com.pokedaisy.app.mouse.NativeBattleMouse.Menu
+import com.pokedaisy.app.mouse.NativeBattleMouse.Native
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
+import com.pokedaisy.app.NativeBattleReader.Profile
 
-class FireRedMouseReaderTest {
-    private class Fixture : MemoryReader {
+class NativeBattleReaderTest {
+    private class Fixture(private val directory: String = "firered_shiny_battle") : MemoryReader {
         private val ewram = resource("ewram.bin")
         private val iwram = resource("iwram.bin")
         var shortAt = -1L
 
         private fun resource(name: String) =
-            checkNotNull(javaClass.getResourceAsStream("/fixtures/firered_shiny_battle/$name")).use { it.readBytes() }
+            checkNotNull(javaClass.getResourceAsStream("/fixtures/$directory/$name")).use { it.readBytes() }
 
         fun set(address: Long, vararg values: Int) {
             val (bytes, off) = locate(address)
@@ -36,13 +38,13 @@ class FireRedMouseReaderTest {
 
     @Test fun scriptedFixtureWithTheActionHandlerDoesNotQualify() {
         val fixture = Fixture()
-        assertEquals(Native.UNKNOWN, FireRedMouseReader(fixture, FADE).sample())
+        assertEquals(Native.UNKNOWN, NativeBattleReader(fixture, Profile.FIRERED_REV1, FADE).sample())
     }
 
     @Test fun exactControllerAndCommandAreNecessaryEvenWithTheMenuVisible() {
         val fixture = Fixture()
         fixture.ordinary()
-        val reader = FireRedMouseReader(fixture, FADE)
+        val reader = NativeBattleReader(fixture, Profile.FIRERED_REV1, FADE)
         assertEquals(Native(Menu.ACTION, Menu.ACTION, 0, 4), reader.sample())
         fixture.set(0x02023BC8, 0)
         assertEquals(Native(Menu.ACTION, null, -1, 0), reader.sample())
@@ -60,13 +62,44 @@ class FireRedMouseReaderTest {
         fixture.set(0x03004FE0, 0x25, 0xEA, 0x02, 0x08)
         fixture.set(0x02022BC4, 20, 0, 0, 0, 33, 0, 52, 0, 10, 0, 0, 0)
         fixture.set(0x02023FFC, 2)
-        val reader = FireRedMouseReader(fixture, FADE)
+        val reader = NativeBattleReader(fixture, Profile.FIRERED_REV1, FADE)
         assertEquals(Native(Menu.MOVE, Menu.MOVE, 2, 3), reader.sample())
         fixture.set(0x02023FFC, 3)
         assertEquals(Native(Menu.MOVE, null, -1, 0), reader.sample())
         fixture.set(0x02023FFC, 2)
         fixture.set(FADE + 4, 0x40, 0, 0, 0x80)
         assertEquals(Native(Menu.MOVE, null, -1, 0), reader.sample())
+    }
+
+    @Test fun exactIdentityDoesNotAcceptAHeaderOrAnotherRevisionHash() {
+        for (profile in Profile.entries) {
+            assertEquals(profile, NativeBattleReader.exactProfile(profile.code, profile.revision, profile.sha1))
+            assertNull(NativeBattleReader.exactProfile(profile.code, profile.revision, "0".repeat(40)))
+            assertNull(NativeBattleReader.exactProfile(profile.code, profile.revision + 1, profile.sha1))
+        }
+        assertNull(NativeBattleReader.exactProfile("BPEE", 0, Profile.FIRERED_REV0.sha1))
+    }
+
+    @Test fun revisionZeroAndEmeraldUseTheirOwnBattleReadinessConfig() {
+        for ((profile, directory) in listOf(
+            Profile.FIRERED_REV0 to "firered_randomized_rev0_battle",
+            Profile.EMERALD to "emerald_shiny_battle",
+        )) {
+            val fixture = Fixture(directory)
+            val fade = profile.fade ?: FADE
+            val reader = NativeBattleReader(fixture, profile, fade)
+            assertNull(reader.sample().ready())
+            fixture.set(profile.config.battleTypeFlags, 4, 0, 0, 0)
+            fixture.set(profile.bg0y, 160, 0)
+            fixture.set(profile.exec, 1, 0, 0, 0)
+            fixture.set(profile.commandBuffer, 18)
+            fixture.set(profile.config.actionCursor, 0)
+            fixture.set(fade, *IntArray(10))
+            val handler = profile.config.handleInputChooseAction + 1
+            fixture.set(profile.config.battlerControllerFuncs,
+                *(0..3).map { (handler ushr (it * 8)).toInt() and 255 }.toIntArray())
+            assertEquals(Native(Menu.ACTION, Menu.ACTION, 0, 4), reader.sample())
+        }
     }
 
     private companion object {

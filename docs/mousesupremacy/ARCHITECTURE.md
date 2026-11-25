@@ -1,4 +1,6 @@
-# Proposed architecture
+# MouseSupremacy architecture
+
+The [owner-approved gameplay direction](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/pull/4#issuecomment-7172711831) makes retail Emerald and Emerald-based hacks primary product targets. FireRed rev 0 and rev 1 are reference profiles for the common native battle contract.
 
 ## Android-native input and WSA-first verification
 
@@ -13,9 +15,9 @@ Keep MouseSupremacy modular around stable input, observation, projection and exe
 | Platform pointer | Standard Android mouse and opt-in direct touch use the Android baseline. A separate WSA adapter handles verified translation. Normalize positions and generation, button/contact edges, wheel where delivered, focus and cancellation. |
 | Ownership | Apply Mouse Mode, topmost UI ownership and manual-input priority. Invalidate requests on focus loss, lifecycle or layout change. Preserve touch and controller paths. |
 | Game observation | Reuse exact ROM identification and existing readers. Collect bounded, read-only action observations at a frame boundary. Distinguish unavailable values from valid zero. UI telemetry remains useful to display, but may be stale at input time. |
-| Projection | Publish the actual displayed picture transform and exclusions. Project window coordinates into the intended game screen and native pixel domain. Publish world projection only when camera and map identity are proven. |
+| Projection | Bind actual shown texture origin, size, quad, clipping and exclusions to its frame. Regular fit/stretch and fullscreen layouts use the same inverse. EXPAND projects the original pixels inside the shown window and excludes synthetic margins at every eligible zoom. Publish expanded-world map projection only once camera and map identity are proven. |
 | Semantic interaction | Share 2D hit testing, selection feedback, gesture admission, drag navigation intent and action execution across adapters. Bind intent to target, ROM, owner, context and viewport generation. |
-| Family/profile adapters | Describe native UI targets, safe transitions, capability predicates and per-ROM exceptions. Keep addresses and validation beside existing game data where appropriate. |
+| Family/profile adapters | Own native state, readiness, menu semantics, collision and entity observations. Exact revision profiles carry verified addresses, layouts and capability overrides. Share cursor steering, gesture ownership, input scheduling and pathfinding across engine families. |
 | Execution | One arbiter drives legitimate D-pad, A and B through the normal core key path. Use one bounded pending intent. Follow the [final-frame precedence and commit contract](specifications/02-input-ownership.md#final-frame-commitment) and verify the applied mask and resulting state. |
 | Navigation | Build a map-local graph of verified edges, then walk one controlled edge at a time. Revalidate occupant and movement constraints. |
 | Feedback | Prefer native selection and context updates. Publish optional feedback only for the currently validated visible target. Avoid an independent selected action. |

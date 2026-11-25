@@ -1,17 +1,17 @@
 package com.pokedaisy.app.mouse;
 
-import com.pokedaisy.app.mouse.FireRedBattleMouse.Menu;
-import com.pokedaisy.app.mouse.FireRedBattleMouse.Native;
+import com.pokedaisy.app.mouse.NativeBattleMouse.Menu;
+import com.pokedaisy.app.mouse.NativeBattleMouse.Native;
 import com.pokedaisy.mousesupremacy.pointer.PointerLayout;
 import java.util.ArrayList;
 import java.util.List;
-import static com.pokedaisy.app.mouse.FireRedBattleMouse.*;
+import static com.pokedaisy.app.mouse.NativeBattleMouse.*;
 
 /** Forward core fake with independent cursor and masked input ledger. Runnable with JDK 17. */
-public final class FireRedMouseHarness {
+public final class NativeBattleMouseHarness {
     private static final class Core {
         final ArrayList<String> trace = new ArrayList<>();
-        final FireRedBattleMouse mouse = new FireRedBattleMouse(trace::add);
+        final NativeBattleMouse mouse = new NativeBattleMouse(trace::add);
         final ArrayList<Integer> masks = new ArrayList<>();
         long frame = 7, layout = 1, transform = 21, gesture;
         Menu menu = Menu.ACTION;
@@ -184,11 +184,35 @@ public final class FireRedMouseHarness {
                 "applied ledger survives a later cancellation");
     }
 
+    private static void expandedProjection() {
+        var viewport = new PointerLayout.Bounds(0, 0, 900, 600);
+        var texture = new PointerLayout.Bounds(10, 5, 650, 405);
+        var quad = PointerLayout.coreQuad(texture, -40, -20, 320, 200, 240, 160);
+        check(quad.equals(new PointerLayout.Bounds(90, 45, 570, 365)), "expanded native source origin");
+        var dock = new PointerLayout.Bounds(600, 0, 900, 600);
+        var layout = new PointerLayout(viewport, dock, List.of(), List.of(), false, false,
+                viewport.intersection(texture), quad, 7);
+        check(layout.hit(380, 301).pixel().equals(new PointerLayout.Pixel(145, 128)), "expanded FIGHT");
+        check(layout.hit(50, 60).owner() == PointerLayout.Owner.UNOWNED, "synthetic margin stays unowned");
+        check(layout.hit(610, 300).owner() == PointerLayout.Owner.COMPANION, "expanded companion precedence");
+        var hud = new PointerLayout(viewport, dock, List.of(), List.of(), false, true,
+                viewport.intersection(texture), quad, 7);
+        check(hud.hit(380, 301).owner() == PointerLayout.Owner.HUD, "HUD reservation wins");
+        var crop = new PointerLayout.Bounds(100, 50, 500, 330);
+        var cropCore = PointerLayout.coreQuad(crop, 20, 15, 200, 140, 240, 160);
+        var cropped = new PointerLayout(viewport, null, List.of(), List.of(), false, false,
+                viewport.intersection(crop), cropCore, 8);
+        check(cropped.hit(350, 276).pixel().equals(new PointerLayout.Pixel(145, 128)), "cropped FIGHT retains origin");
+        check(cropped.hit(90, 276).owner() == PointerLayout.Owner.UNOWNED, "unshown source is clipped");
+        check(PointerLayout.coreQuad(texture, 240, 0, 320, 200, 240, 160) == null, "no native overlap");
+    }
+
     public static void main(String[] args) {
+        expandedProjection();
         twoWidths();
         interruptions();
         unavailableAndUnapplied();
         afterCommitCancellation();
-        System.out.println("FireRed fake core: two widths, nine interruptions, unqualified and no-step cases passed");
+        System.out.println("Native battle fake core: two widths, nine interruptions, unqualified and no-step cases passed");
     }
 }

@@ -12,7 +12,7 @@ Map positions to the actual displayed original frame. Cover fit, stretch, letter
 
 ## Contract
 
-Publish an immutable geometry snapshot with layout generation, displayed frame and screen identity, drawn rect, transforms, clipping and overlay exclusions. Convert window-local coordinates to renderer-local coordinates before inverting the displayed transform. For the original GBA domain, use the 240×160 native region after undoing scale and expansion/window origin. Return a distinct unavailable/outside result for opaque layers, clipped content, letterbox, stale generations and pixels outside the supported domain. Keep DS top and bottom distinct. Validate bounds before rounding or truncating.
+Publish an immutable geometry snapshot with layout generation, displayed frame and screen identity, drawn rect, transforms, clipping and overlay exclusions. Convert window-local coordinates to renderer-local coordinates before inverting the displayed transform. Project the original core region from the actual drawn texture and source/window origin, then intersect texture and frontend clipping before hit testing. The native GBA domain is 240×160. EXPAND margins have no native menu target. Expanded-world coordinates need the separate camera/map contract. Return a distinct unavailable/outside result for opaque layers, clipped content, letterbox, stale generations and pixels outside the supported domain. Keep DS top and bottom distinct. Validate bounds before rounding or truncating.
 
 Transition from unavailable to displayed geometry after a frame is presented. Mark stale during invalidating resize or transforms and republish on matching layout and display state. Use actual shown texture/window metadata if a frame is held or presentation is skipped. A stale geometry snapshot invalidates a pending screen-space hit. Once navigation accepts a world target it uses map coordinates, so ordinary camera tracking can update the presented transform without invalidating that route.
 
@@ -23,7 +23,7 @@ Cache transforms per displayed geometry generation. A pointer sample requires bo
 ## Acceptance and tests
 
 - Known points and cell edges round-trip through noninteger and asymmetric scale. Letterbox and occluded pixels produce no game target. A point slightly outside the rect cannot round into a valid pixel.
-- Under side-panel slide/resize, zoom and expansion, actual drawn cells and diagnostic hit regions align. Separate top/bottom DS ownership works without changing upstream touch.
+- Under fullscreen, fit/stretch, side-panel resize and each supported EXPAND zoom, actual shown cells and eligible regions align. Include clipped windows and synthetic margins. Separate top/bottom DS ownership works without changing upstream touch.
 - Test round trips and invalid generations with unit tests, then compare annotated screenshots and real pointer traces with layout changes.
 
 ## Deferred and decisions

@@ -79,6 +79,8 @@ A lost conventional terminal can consume the first newer same-stream press while
 - A CI debug signer is disposable. Use a clean throwaway Android instance or a known matching disposable dev signer. If a signer differs, stop the update and leave the installed package and data in place. Changing package or reinstalls require separate review and a save backup.
 - The startup updater checks only in ordinary non-debug builds. Manual Settings checks still fetch upstream release info. `AppUpdate` verifies installed package ID, signer and increasing version code. The official package therefore fails the dev package check. [Library startup](../../app/src/main/kotlin/com/pokedaisy/app/LibraryActivity.kt#L383) · [manual update checks](../../app/src/main/kotlin/com/pokedaisy/app/SettingsActivity.kt#L988) · [APK validation](../../app/src/main/kotlin/com/pokedaisy/app/AppUpdate.kt#L127)
 
+The [accepted Phase 1C report](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/pull/3#issuecomment-7171873485) supplies the two-width observation and GBA save-isolation baseline. The native gameplay checkout keeps the exact installed APK and resolved save path checks. A repeat of the observation-only session is unnecessary.
+
 ### Pre-launch save isolation gate
 
 Use this gate for any GBA, GB/GBC or DS ROM in a dev experiment. The standalone ROM-free pointer probe needs no ROM or save storage. Package verification and installation alone do not clear the save gate.

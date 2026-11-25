@@ -41,6 +41,7 @@ class EmulatorView(context: Context) : GLSurfaceView(context) {
         val frame: Long,
         val transform: Long,
         val quad: com.pokedaisy.mousesupremacy.pointer.PointerLayout.Bounds,
+        val texture: com.pokedaisy.mousesupremacy.pointer.PointerLayout.Bounds,
     )
 
     internal var observePointerPicture: Boolean
@@ -49,7 +50,7 @@ class EmulatorView(context: Context) : GLSurfaceView(context) {
 
     internal val pointerPicture: PointerPicture? get() = renderer.pointerPicture
     internal var onPointerCallback: ((MotionEvent, String) -> Unit)? = null
-    internal var battleMouse: com.pokedaisy.app.mouse.FireRedBattleMouse?
+    internal var battleMouse: com.pokedaisy.app.mouse.NativeBattleMouse?
         get() = renderer.battleMouse
         set(value) { renderer.battleMouse = value }
 
@@ -348,9 +349,12 @@ class EmulatorView(context: Context) : GLSurfaceView(context) {
 
     /** Emu thread, right after a frame has run: hands the finished frame to the GL thread - the
      * wide one when the core drew it ([MgbaCore.pkWideWidth]), with the window it shows. */
-    fun publishFrame() = publishFrame(null)
+    fun publishFrame() = publishFrame(null, null)
 
-    internal fun publishFrame(sample: com.pokedaisy.app.mouse.FireRedBattleMouse.Sample?) {
+    internal fun publishFrame(
+        sample: com.pokedaisy.app.mouse.NativeBattleMouse.Sample?,
+        sampleWindow: WideCamera.Window?,
+    ) {
         try {
             // A fast-forward frame the window wasn't drawn for: the screen keeps the last one (never a plain frame between).
             if (wide && MgbaCore.pkWideSkipped()) return
@@ -361,7 +365,10 @@ class EmulatorView(context: Context) : GLSurfaceView(context) {
             }
             val w = MgbaCore.pkWideWidth()
             val win = camera.current
-            if (w > 0 && win != null) renderer.publish(w, MgbaCore.pkWideHeight(), win) else renderer.publish(0, 0, null, sample)
+            if (w > 0 && win != null) {
+                val h = MgbaCore.pkWideHeight()
+                renderer.publish(w, h, win, sample.takeIf { win === sampleWindow && w == win.w && h == win.h })
+            } else renderer.publish(0, 0, null, sample.takeIf { w <= 0 })
         } catch (t: Exception) {
             // Whatever went wrong with the window, the game's own frame still goes up.
             Log.e("pokedaisy", "WIDE frame not published", t)
@@ -491,10 +498,10 @@ class EmulatorView(context: Context) : GLSurfaceView(context) {
         private var gpuShown = false
         private val gpuInfo = IntArray(6)
 
-        @Volatile var battleMouse: com.pokedaisy.app.mouse.FireRedBattleMouse? = null
-        private var readyBattle: com.pokedaisy.app.mouse.FireRedBattleMouse.Sample? = null
-        private var shownBattle: com.pokedaisy.app.mouse.FireRedBattleMouse.Sample? = null
-        private var battleDraw: com.pokedaisy.app.mouse.FireRedBattleMouse.Picture? = null
+        @Volatile var battleMouse: com.pokedaisy.app.mouse.NativeBattleMouse? = null
+        private var readyBattle: com.pokedaisy.app.mouse.NativeBattleMouse.Sample? = null
+        private var shownBattle: com.pokedaisy.app.mouse.NativeBattleMouse.Sample? = null
+        private var battleDraw: com.pokedaisy.app.mouse.NativeBattleMouse.Picture? = null
 
         @Volatile var framesShown = 0L
         @Volatile var lateFrames = 0L
@@ -573,7 +580,7 @@ class EmulatorView(context: Context) : GLSurfaceView(context) {
         /** Emu thread, between frames (so [buffer] is whole): copies it - or, with [win], the WIDE window
          * [wideW] x [wideH] - into [ready]. */
         fun publish(wideW: Int, wideH: Int, win: WideCamera.Window?,
-                    sample: com.pokedaisy.app.mouse.FireRedBattleMouse.Sample? = null) = synchronized(frameLock) {
+                    sample: com.pokedaisy.app.mouse.NativeBattleMouse.Sample? = null) = synchronized(frameLock) {
             readyGpu = false
             val wideSrc = wideBuffer?.takeIf { wideW > 0 && wideH > 0 && win != null }
             val src = wideSrc ?: buffer ?: return
@@ -589,7 +596,7 @@ class EmulatorView(context: Context) : GLSurfaceView(context) {
             readyH = h
             readyWin = if (wideSrc != null) win else null
             readyHasPixels = true
-            readyBattle = sample.takeIf { wideSrc == null }
+            readyBattle = sample.takeIf { win == null || wideSrc != null }
             if (fresh) unshownFrames++
             fresh = true
             (frameLock as Object).notifyAll()
@@ -761,7 +768,7 @@ class EmulatorView(context: Context) : GLSurfaceView(context) {
             battleMouse?.let { mouse ->
                 synchronized(lock) {
                     mouse.show(battleDraw?.takeIf { pointerPicture != null && !holdFrame() }
-                        ?.let { com.pokedaisy.app.mouse.FireRedBattleMouse.Picture(it.sample(), it.transform(), System.nanoTime()) })
+                        ?.let { com.pokedaisy.app.mouse.NativeBattleMouse.Picture(it.sample(), it.transform(), System.nanoTime()) })
                 }
             }
             val wait = onVsync?.invoke() ?: 0L
@@ -773,7 +780,7 @@ class EmulatorView(context: Context) : GLSurfaceView(context) {
                     val geometry = pointerPicture
                     val sample = shownBattle
                     battleDraw = if (geometry != null && sample != null)
-                        com.pokedaisy.app.mouse.FireRedBattleMouse.Picture(sample, geometry.transform, 0) else null
+                        com.pokedaisy.app.mouse.NativeBattleMouse.Picture(sample, geometry.transform, 0) else null
                 }
             }
         }
@@ -924,19 +931,32 @@ class EmulatorView(context: Context) : GLSurfaceView(context) {
 
         // A GL draw candidate. The framework swaps the surface after onDrawFrame returns.
         private fun reportPointerPicture() {
+            val win = shownWin
+            val compatible = if (win == null) texW == frameW && texH == frameH
+                else battleMouse != null && shownBattle != null && win == placedWin &&
+                    win.w == texW && win.h == texH
             if (buffer == null || plain == null || !shownHasPixels || !texAllocated || gpuShown ||
-                frameW != 240 || frameH != 160 || texW != 240 || texH != 160 ||
-                shownWin != null || overlay != null || surfaceW <= 0 || surfaceH <= 0 || holdFrame()) {
+                frameW != 240 || frameH != 160 || !compatible ||
+                overlay != null || surfaceW <= 0 || surfaceH <= 0 || holdFrame()) {
+                if (pointerPicture != null) battleMouse?.show(null)
                 pointerPicture = null
                 return
             }
-            if (pointerPicture?.let { it.frame == framesShown && it.transform == pointerTransform } == true) return
-            // Invert the actual quad submitted above. Its bottom-left vertex comes first.
-            val quad = com.pokedaisy.mousesupremacy.pointer.PointerLayout.Bounds(
+            val previous = pointerPicture
+            if (previous?.let { it.frame == framesShown && it.transform == pointerTransform } == true) return
+            // The texture can extend beyond the original core frame or crop it. Track both rectangles.
+            val texture = com.pokedaisy.mousesupremacy.pointer.PointerLayout.Bounds(
                 (pos[0] + 1f) * surfaceW / 2f, (1f - pos[5]) * surfaceH / 2f,
                 (pos[2] + 1f) * surfaceW / 2f, (1f - pos[1]) * surfaceH / 2f,
             )
-            pointerPicture = PointerPicture(surfaceW, surfaceH, framesShown, pointerTransform, quad)
+            val quad = if (win == null) texture else
+                com.pokedaisy.mousesupremacy.pointer.PointerLayout.coreQuad(
+                    texture, win.x, win.y, texW, texH, frameW, frameH,
+                )
+            if (previous != null && previous.transform != pointerTransform) battleMouse?.show(null)
+            pointerPicture = if (quad != null)
+                PointerPicture(surfaceW, surfaceH, framesShown, pointerTransform, quad, texture) else null
+            if (quad == null) battleMouse?.show(null)
         }
 
         /** The overlay, if any, over what's drawn (premultiplied alpha, as Android's bitmaps are). */
@@ -1066,7 +1086,8 @@ class EmulatorView(context: Context) : GLSurfaceView(context) {
 
         /** A WIDE window's quad: [WideCamera.Window.offX] / [offY] from the view's top-left, its pixels [scale] each. */
         private fun windowQuad(win: WideCamera.Window) {
-            if (win === placedWin) return
+            if (win == placedWin) return
+            pointerTransform++
             placedWin = win
             val x0 = -1f + 2f * win.offX / surfaceW
             val x1 = x0 + 2f * win.w * win.scale / surfaceW

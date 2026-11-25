@@ -7,7 +7,7 @@ import android.util.Log
 import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.ViewConfiguration
-import com.pokedaisy.app.mouse.FireRedBattleMouse
+import com.pokedaisy.app.mouse.NativeBattleMouse
 import com.pokedaisy.mousesupremacy.pointer.DeviceAliases
 import com.pokedaisy.mousesupremacy.pointer.DirectTouch
 import com.pokedaisy.mousesupremacy.pointer.PointerLayout
@@ -25,8 +25,8 @@ internal class MousePointerTrace private constructor(
     enableBattle: Boolean,
 ) {
     private val battleRows = java.util.concurrent.atomic.AtomicInteger(1500)
-    internal val battleMouse = if (enableBattle) FireRedBattleMouse { row ->
-        if (battleRows.getAndDecrement() > 0) Log.i("MsFireRed", row)
+    internal val battleMouse = if (enableBattle) NativeBattleMouse { row ->
+        if (battleRows.getAndDecrement() > 0) Log.i("MsNativeBattle", row)
     } else null
     private enum class Profile(val marker: String) {
         ANDROID("ms_pointer_android"), WSA("ms_pointer_wsa"), DIRECT("ms_pointer_touch"),
@@ -51,7 +51,7 @@ internal class MousePointerTrace private constructor(
     private var battleRelease: (() -> Unit)? = null
     private var lastViewOnlyMove = -100L
 
-    init { note("start schema=1 profile=$profile mode=${if (enableBattle) "firered-reference" else "observe-only"}") }
+    init { note("start schema=1 profile=$profile mode=${if (enableBattle) "native-battle-reference" else "observe-only"}") }
 
     fun invalidate(reason: String, through: Long = SystemClock.uptimeMillis()) {
         if (reason == "upstream-key" || reason == "upstream-controller") battleMouse?.invalidate(reason)
@@ -295,7 +295,7 @@ internal class MousePointerTrace private constructor(
         fun create(activity: PokeDaisyActivity): MousePointerTrace? {
             if (!BuildConfig.DEBUG || BuildConfig.APPLICATION_ID != "com.pokedaisy.app.dev") return null
             val profile = Profile.entries.singleOrNull { File(activity.filesDir, it.marker).isFile } ?: return null
-            val enableBattle = profile != Profile.DIRECT && File(activity.filesDir, "ms_firered_battle").isFile
+            val enableBattle = profile != Profile.DIRECT && File(activity.filesDir, "ms_native_battle").isFile
             return MousePointerTrace(profile, ViewConfiguration.get(activity).scaledTouchSlop.toFloat(), enableBattle)
         }
     }

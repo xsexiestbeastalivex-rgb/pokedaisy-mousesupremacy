@@ -2,15 +2,37 @@ package com.pokedaisy.app
 
 import com.pokedaisy.app.companion.data.InProcessReader
 import com.pokedaisy.app.companion.data.MemoryReader
+import com.pokedaisy.app.companion.data.NATIVE_EMERALD_RETAIL
+import com.pokedaisy.app.companion.data.NATIVE_FIRERED_REV0_RETAIL
 import com.pokedaisy.app.companion.data.NATIVE_FIRERED_REV1
-import com.pokedaisy.app.mouse.FireRedBattleMouse.Menu
-import com.pokedaisy.app.mouse.FireRedBattleMouse.Native
+import com.pokedaisy.app.companion.data.NativeConfig
+import com.pokedaisy.app.mouse.NativeBattleMouse.Menu
+import com.pokedaisy.app.mouse.NativeBattleMouse.Native
 import java.io.File
 import java.security.MessageDigest
 
 /** Read only, on the emulation thread, between mGBA frames. */
-internal class FireRedMouseReader(private val read: MemoryReader, private val paletteFade: Long) {
-    private val cfg = NATIVE_FIRERED_REV1
+internal class NativeBattleReader(
+    private val read: MemoryReader,
+    val profile: Profile,
+    private val paletteFade: Long,
+) {
+    private val cfg = profile.config
+
+    // FireRed rev 0/1 share the battle RAM layout. Callback addresses are revision-specific.
+    internal enum class Profile(
+        val code: String, val revision: Int, val sha1: String, val config: NativeConfig,
+        val bg0y: Long, val exec: Long, val commandBuffer: Long,
+        val main1: Long, val main2: Long, val vblank: Long, val fade: Long? = null,
+    ) {
+        FIRERED_REV0("BPRE", 0, "41cb23d8dccc8ebd7c649cd8fbb58eeace6e2fdc", NATIVE_FIRERED_REV0_RETAIL,
+            0x02022976L, 0x02023BC8L, 0x02022BC4L, 0x080123E5L, 0x08011101L, 0x080116F5L),
+        FIRERED_REV1("BPRE", 1, "dd5945db9b930750cb39d00c84da8571feebf417", NATIVE_FIRERED_REV1,
+            0x02022976L, 0x02023BC8L, 0x02022BC4L, 0x080123F9L, 0x08011115L, 0x08011709L),
+        // Byte-matched Emerald symbols from pk_coop_emerald.h and the upstream RAM fixture.
+        EMERALD("BPEE", 0, "f3ae088181bf583e55daf962a92bb46f4f1d07b7", NATIVE_EMERALD_RETAIL,
+            0x02022E16L, 0x02024068L, 0x02023064L, 0x08039EF1L, 0x08038421L, 0x08038A29L, 0x02037FD4L),
+    }
 
     fun frame(): Long = runCatching { read.u32(cfg.gMainVblankCtr) }.getOrDefault(-1)
 
@@ -22,17 +44,17 @@ internal class FireRedMouseReader(private val read: MemoryReader, private val pa
         if (read.u32(cfg.battleTypeFlags) !in WILD_FLAGS ||
             read.u8(cfg.battlersCount) != 2 ||
             !read.bytes(cfg.battlerPositions, 2).contentEquals(PLAYER_AND_FOE)) return Native.UNKNOWN
-        if (read.u32(cfg.gMain) != BATTLE_MAIN_1 || read.u32(cfg.gMain + 4) != BATTLE_MAIN_2 ||
-            read.u32(cfg.gMain + 12) != BATTLE_VBLANK) return Native.UNKNOWN
+        if (read.u32(cfg.gMain) != profile.main1 || read.u32(cfg.gMain + 4) != profile.main2 ||
+            read.u32(cfg.gMain + 12) != profile.vblank) return Native.UNKNOWN
 
-        if (read.u16(BATTLE_BG0_Y - 2) != 0) return Native.UNKNOWN
-        val visible = when (read.u16(BATTLE_BG0_Y)) {
+        if (read.u16(profile.bg0y - 2) != 0) return Native.UNKNOWN
+        val visible = when (read.u16(profile.bg0y)) {
             160 -> Menu.ACTION
             320 -> Menu.MOVE
             else -> null
         }
         val blocked = Native(visible, null, -1, 0)
-        if (visible == null || read.u32(BATTLE_EXEC) != 1L) return blocked
+        if (visible == null || read.u32(profile.exec) != 1L) return blocked
         val expectedHandler = if (visible == Menu.ACTION) cfg.handleInputChooseAction else cfg.handleInputChooseMove
         val controllers = read.bytes(cfg.battlerControllerFuncs, 16)
         if (controllers.le32(0) != expectedHandler + 1 ||
@@ -41,7 +63,7 @@ internal class FireRedMouseReader(private val read: MemoryReader, private val pa
                 ptr == cfg.handleInputChooseAction || ptr == cfg.handleInputChooseMove ||
                     ptr == cfg.handleInputChooseTarget
             }) return blocked
-        val command = read.bytes(PLAYER_BUFFER, 12)
+        val command = read.bytes(profile.commandBuffer, 12)
         if (command[0].byte() != (if (visible == Menu.ACTION) 18 else 20)) return blocked
         val fade = read.bytes(paletteFade, 10)
         val amount = fade.le16(4) ushr 6 and 31
@@ -63,41 +85,41 @@ internal class FireRedMouseReader(private val read: MemoryReader, private val pa
     companion object {
         private const val ROM_BASE = 0x08000000L
         private const val ROM_SIZE = 0x1000000L
-        private const val SHA1 = "dd5945db9b930750cb39d00c84da8571feebf417"
         private val WILD_FLAGS = setOf(0L, 4L)
         private val PLAYER_AND_FOE = byteArrayOf(0, 1)
-        // Exact rev 1: pret c75f352 source layout, checked against the upstream scripted fixture.
-        private const val BATTLE_BG0_Y = 0x02022976L
-        private const val BATTLE_EXEC = 0x02023BC8L
-        private const val PLAYER_BUFFER = 0x02022BC4L
-        private const val BATTLE_MAIN_1 = 0x080123F9L
-        private const val BATTLE_MAIN_2 = 0x08011115L
-        private const val BATTLE_VBLANK = 0x08011709L
 
-        fun bind(rom: File): FireRedMouseReader? = runCatching {
+        internal fun exactProfile(code: String, revision: Int, sha1: String): Profile? =
+            Profile.entries.firstOrNull { it.code == code && it.revision == revision && it.sha1 == sha1 }
+
+        fun bind(rom: File): NativeBattleReader? = runCatching {
             // pk_api_read serves GBA cart addresses from the core session's unmodified ROM mapping.
             // Hash the entire loaded payload, including bytes masked by the companion's compatibility hash.
             val read = InProcessReader
             if (!rom.extension.equals("gba", ignoreCase = true) || rom.length() != ROM_SIZE ||
-                MgbaCore.pkRomSize() != ROM_SIZE ||
-                read.bytes(ROM_BASE + 0xAC, 4).decodeToString() != "BPRE" ||
-                read.u8(ROM_BASE + 0xBC) != 1) return null
+                MgbaCore.pkRomSize() != ROM_SIZE) return null
+            val code = read.bytes(ROM_BASE + 0xAC, 4).decodeToString()
+            val revision = read.u8(ROM_BASE + 0xBC)
+            if (Profile.entries.none { it.code == code && it.revision == revision }) return null
             val digest = MessageDigest.getInstance("SHA-1")
             val chunk = ByteArray(64 * 1024)
             for (off in 0L until ROM_SIZE step chunk.size.toLong()) {
                 if (!MgbaCore.pkReadInto(ROM_BASE + off, chunk)) return null
                 digest.update(chunk)
             }
-            if (digest.digest().joinToString("") { "%02x".format(it.byte()) } != SHA1) return null
-            // Same exact-ROM Thumb literal used by BattleBall.find for CompleteWhenChoseItem.
-            val cfg = NATIVE_FIRERED_REV1
+            val hash = digest.digest().joinToString("") { "%02x".format(it.byte()) }
+            val profile = exactProfile(code, revision, hash) ?: return null
+            val palette = profile.fade ?: fireRedPaletteAddress(read, profile.config) ?: return null
+            NativeBattleReader(read, profile, palette)
+        }.getOrNull()
+
+        // The exact-ROM Thumb literal that upstream BattleBall.find uses for CompleteWhenChoseItem.
+        private fun fireRedPaletteAddress(read: MemoryReader, cfg: NativeConfig): Long? {
             val at = cfg.completeWhenChoseItem + 0x0C
             val instruction = read.u16(at)
             if (instruction and 0xF800 != 0x4800) return null
             val palette = read.u32(((at + 4) and 3L.inv()) + (instruction and 0xFF) * 4)
-            if (palette !in 0x02000000L until 0x0203FFF8L) return null
-            FireRedMouseReader(read, palette)
-        }.getOrNull()
+            return palette.takeIf { it in 0x02000000L..0x0203FFF6L }
+        }
 
         private fun Byte.byte() = toInt() and 0xFF
         private fun ByteArray.le16(i: Int) = this[i].byte() or (this[i + 1].byte() shl 8)

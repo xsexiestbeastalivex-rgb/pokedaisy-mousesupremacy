@@ -56,8 +56,10 @@ class EmulatorEngine(
     private val preferences: Prefs,
     private val telemetry: com.pokedaisy.app.companion.TelemetryStore,
 ) {
-    internal var battleMouse: com.pokedaisy.app.mouse.FireRedBattleMouse? = null
-    internal var battleMouseSample: com.pokedaisy.app.mouse.FireRedBattleMouse.Sample? = null
+    internal var battleMouse: com.pokedaisy.app.mouse.NativeBattleMouse? = null
+    internal var battleMouseSample: com.pokedaisy.app.mouse.NativeBattleMouse.Sample? = null
+        private set
+    internal var battleMouseWindow: WideCamera.Window? = null
         private set
 
     private var thread: Thread? = null
@@ -1145,8 +1147,11 @@ class EmulatorEngine(
         runCatching { track?.setVolume(trackGain) }
         slowFrames = false
         audioFallback = false
-        val mouseReader = if (gba && battleMouse != null) FireRedMouseReader.bind(rom) else null
-        battleMouse?.session(mouseReader != null)
+        val mouseReader = if (gba && battleMouse != null) NativeBattleReader.bind(rom) else null
+        if (battleMouse != null) {
+            Log.i("MsNativeBattle", "profile=${mouseReader?.profile?.name ?: "unsupported"}")
+            battleMouse?.session(mouseReader != null)
+        }
         val run = GameRun(sampleRate, track, trackGain, mouseReader)
         try {
             while (running) {
@@ -1200,7 +1205,7 @@ class EmulatorEngine(
      */
     private inner class GameRun(
         val sampleRate: Int, val track: AudioTrack?, initialGain: Float,
-        val mouseReader: FireRedMouseReader?,
+        val mouseReader: NativeBattleReader?,
     ) {
         var mouseStamp: GbaInput.MouseInput? = null
         var companionReserved = false
@@ -1208,6 +1213,7 @@ class EmulatorEngine(
         var mouseResetting = false
         var mouseWasRewinding = false
         var mouseFrameBefore = -1L
+        var mouseWideWindow: WideCamera.Window? = null
         var trackGain = initialGain
 
         val scratch = ShortArray(4096)
@@ -1400,6 +1406,9 @@ class EmulatorEngine(
                     runCatching { onWideOff?.invoke("camera") }
                 }
             }
+            // Keep the exact camera window prepared for this step. The fallback clears wideCamera.
+            mouseWideWindow = if (mouseReader != null && wideApplied != WideScreen.OFF && !probeOnly)
+                wideCamera?.current else null
             rewinding = rewindHeld && rewindWanted > 0
             MgbaCore.pkSetRewinding(rewinding)
             // TURBO A / B: pressed 2 frames, released 2, in game frames - so FF mashes faster too.
@@ -1517,6 +1526,7 @@ class EmulatorEngine(
             val coreEnd = System.nanoTime()
             if (mouseReader != null) {
                 battleMouseSample = null
+                battleMouseWindow = mouseWideWindow
                 val after = mouseReader.frame()
                 if (!rewinding && !mouseResetting) {
                     battleMouseSample = battleMouse?.applied(mouseFrameBefore, after, mouseReader.sample())

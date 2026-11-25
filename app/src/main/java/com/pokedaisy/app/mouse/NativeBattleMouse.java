@@ -2,8 +2,8 @@ package com.pokedaisy.app.mouse;
 
 import java.util.function.IntConsumer;
 
-/** One FireRed battle lease. All UI publications and the final key write share this monitor. */
-public final class FireRedBattleMouse {
+/** One native Gen III battle lease. All UI publications and the final key write share this monitor. */
+public final class NativeBattleMouse {
     public static final int A = 1, B = 2, RIGHT = 16, LEFT = 32, UP = 64, DOWN = 128;
     private static final int HOVER = 0, FIGHT = 1, BACK = 2;
     private static final int MAX_LAG = 6, MAX_ACK = 16;
@@ -47,7 +47,7 @@ public final class FireRedBattleMouse {
     private long presentedFrame = -1;
     private Native lastPresented;
 
-    public FireRedBattleMouse(Trace trace) { this.trace = trace; }
+    public NativeBattleMouse(Trace trace) { this.trace = trace; }
 
     public synchronized void session(boolean enabled) {
         session++;
