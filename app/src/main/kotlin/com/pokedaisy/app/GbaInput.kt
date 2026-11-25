@@ -47,6 +47,19 @@ class GbaInput : Hotkeys.GameKeys, ScriptInput {
 
     fun <T> sampleMouseInput(read: (MouseInput) -> T): T = synchronized(lock) { read(mouseInputLocked()) }
 
+    data class SourceSnapshot(
+        val serial: Long, val key: Int, val axes: Int, val touch: Int, val script: Int,
+        val exclusive: Boolean, val press: Int, val queuedTap: Int, val turboHeld: Int,
+        val keyPending: Boolean, val tapPending: Boolean,
+    )
+
+    /** The Android diagnostic sampler reads these under the same lock as the existing tap consumption. */
+    fun mouseSources() = synchronized(lock) {
+        SourceSnapshot(mouseInputSerial, buttonBits, hatBits, touchBits, scriptBits,
+            scriptExclusive, pressBits, tapBits, turboBits or touchTurboBits or latchedHeld,
+            heldKeys.isNotEmpty() || turboKeys.isNotEmpty(), tapFrames > 0)
+    }
+
     fun withMouseInput(sample: MouseInput, commit: (Boolean, Boolean) -> Unit) = synchronized(lock) {
         val now = mouseInputLocked()
         val unchanged = now.serial == sample.serial

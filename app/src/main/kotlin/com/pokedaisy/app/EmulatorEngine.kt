@@ -2,6 +2,7 @@ package com.pokedaisy.app
 
 import com.pokedaisy.app.companion.DsCore
 import com.pokedaisy.app.companion.data.AutoRunPolicy
+import com.pokedaisy.app.companion.data.BATTLE_INPUT_NONE
 import com.pokedaisy.app.companion.data.CoreKey
 import com.pokedaisy.app.companion.data.SnapshotCache
 import com.pokedaisy.app.companion.data.delete
@@ -57,6 +58,7 @@ class EmulatorEngine(
     private val telemetry: com.pokedaisy.app.companion.TelemetryStore,
 ) {
     internal var battleMouse: com.pokedaisy.app.mouse.NativeBattleMouse? = null
+    internal var battleInputEvidence: BattleInputEvidence? = null
     internal var battleMouseSample: com.pokedaisy.app.mouse.NativeBattleMouse.Sample? = null
         private set
     internal var battleMouseWindow: WideCamera.Window? = null
@@ -898,8 +900,21 @@ class EmulatorEngine(
         if (mouse == null) gameSession.requestField(inBattle, delayFrames, run)
         else synchronized(mouse) {
             mouse.interrupt("companion-field-request")
-            gameSession.requestField(inBattle, delayFrames, run)
+            val evidence = battleInputEvidence
+            evidence?.work("producer=companion-action phase=queued inBattle=$inBattle delay=$delayFrames")
+            if (evidence == null) gameSession.requestField(inBattle, delayFrames, run)
+            else gameSession.requestField(inBattle, delayFrames) { calls, busy ->
+                evidence.work("producer=companion-action phase=run busy=$busy")
+                run(calls, busy)
+            }
         }
+    }
+
+    fun requestFlightAreaMaintenance(run: (com.pokedaisy.app.companion.data.GameCalls) -> Unit) {
+        if (gameSession.requestFieldMaintenance { calls ->
+            battleInputEvidence?.work("producer=flight-area phase=run reservation=false")
+            run(calls)
+        }) battleInputEvidence?.work("producer=flight-area phase=queued reservation=false")
     }
 
     private val gameCalls = object : com.pokedaisy.app.companion.data.GameCalls {
@@ -1160,6 +1175,7 @@ class EmulatorEngine(
                 run.afterCore()
                 run.watchScreens()
                 run.fieldStep()
+                run.serviceFieldMaintenance()
                 run.musicStep()
                 run.pacingMode()
                 run.writeAudio()
@@ -1207,6 +1223,13 @@ class EmulatorEngine(
         val sampleRate: Int, val track: AudioTrack?, initialGain: Float,
         val mouseReader: NativeBattleReader?,
     ) {
+        private val inputEvidence = battleInputEvidence.takeIf { mouseReader != null }
+        private var inputSources: GbaInput.SourceSnapshot? = null
+        private var heldKeys = 0
+        private var tapKeys = 0
+        private var turboKeys = 0
+        private var resetKeys = 0
+        private var mixedKeys = 0
         var mouseStamp: GbaInput.MouseInput? = null
         var companionReserved = false
         var upstreamKeys = 0
@@ -1416,9 +1439,23 @@ class EmulatorEngine(
             // TURBO A / B: pressed 2 frames, released 2, in game frames - so FF mashes faster too.
             val reset = if (softResetFrames > 0) { softResetFrames--; SOFT_RESET_KEYS } else 0
             val turboPhase = (frame++ / 2) % 2 == 0L
-            fun mixInput() = input.mask or reset or input.tapMask() or (if (turboPhase) input.turboMask else 0)
+            fun mixInput(): Int {
+                val held = input.mask
+                val tap = input.tapMask()
+                val turbo = if (turboPhase) input.turboMask else 0
+                val mixed = held or reset or tap or turbo
+                if (inputEvidence != null) {
+                    heldKeys = held
+                    tapKeys = tap
+                    turboKeys = turbo
+                    resetKeys = reset
+                    mixedKeys = mixed
+                }
+                return mixed
+            }
             var keys = if (mouseReader == null) mixInput() else input.sampleMouseInput {
                 mouseStamp = it
+                if (inputEvidence != null) inputSources = input.mouseSources()
                 mixInput()
             }
             if (mouseReader != null && (reset != 0 && !mouseResetting || rewinding && !mouseWasRewinding)) {
@@ -1498,30 +1535,76 @@ class EmulatorEngine(
             val sampled = mouseStamp
             if (mouseObserverFailed || mouse == null || sampled == null) {
                 MgbaCore.pkSetKeys(upstreamKeys)
+                if (inputEvidence != null) {
+                    val gate = if (mouseObserverFailed) "observer-failed" else "observer-unavailable"
+                    val snapshot = inputFrame(null, upstreamKeys, false, companionReserved,
+                        gameSession.hasQueuedFieldWork(), gate)
+                    snapshot?.let { inputEvidence.frame(-1, -1, frame, it) }
+                }
                 return
             }
             mouseFrameBefore = reader.frame()
-            mouse.observe(mouseFrameBefore, reader.sample())
+            val native = reader.sample()
+            val observation = mouse.observe(mouseFrameBefore, native)
+            var evidence: BattleInputEvidence.Frame? = null
             battleInput.commitWithMouseReservation { lateCompanion ->
                 input.withMouseInput(sampled) { rawIdle, manual ->
                     synchronized(mouse) {
+                        val companion = companionReserved || lateCompanion
+                        val fieldAction = gameSession.hasQueuedFieldWork()
                         val eligible = mouseFrameBefore >= 0 && running && !rewinding && !rewindHeld &&
                             !mouseResetting && softResetFrames == 0 && !sleeping && pendingSleep == null &&
                             pendingSuspend == null && pendingSave < 0 && !pendingRetrySave &&
                             pendingLoad < 0 && !pendingUndoLoad && !pendingRetryLoad &&
                             !ffHeld && !ffToggled && !slowmoHeld && effectiveSpeed() == 1f &&
                             frameCoop == null && coopBattles == null && coopLock == null &&
-                            !CoopGuards.held && !CoopGuards.statesBlocked && !companionReserved &&
-                            !lateCompanion && !gameSession.hasQueuedFieldWork() && !holdFrame &&
+                            !CoopGuards.held && !CoopGuards.statesBlocked && !companion &&
+                            !fieldAction && !holdFrame &&
                             battleMenuHidden == 0 && cheatText.isEmpty()
                         // If auto-run's current field policy could touch this mask, let only upstream drive.
                         val untouched = !(autoRun && AutoRunPolicy.walking(CoreKey.UP, fieldState, fieldScreen))
                         if (!eligible || !untouched) mouse.interrupt("upstream-gate")
-                        mouse.commit(mouseFrameBefore, upstreamKeys, eligible && untouched && rawIdle,
-                            eligible && untouched && manual, MgbaCore::pkSetKeys)
+                        if (inputEvidence == null) {
+                            mouse.commit(mouseFrameBefore, upstreamKeys, eligible && untouched && rawIdle,
+                                eligible && untouched && manual, MgbaCore::pkSetKeys)
+                        } else {
+                            mouse.commit(mouseFrameBefore, upstreamKeys, eligible && untouched && rawIdle,
+                                eligible && untouched && manual) { final ->
+                                MgbaCore.pkSetKeys(final)
+                                evidence = inputFrame(native, final, rawIdle, companion, fieldAction,
+                                    when {
+                                        !eligible -> "upstream-gate"
+                                        !untouched -> "field-policy"
+                                        !rawIdle -> "raw-input"
+                                        else -> "open"
+                                    })
+                            }
+                        }
                     }
                 }
             }
+            evidence?.let { inputEvidence?.frame(observation?.session() ?: -1L, mouseFrameBefore, frame, it) }
+        }
+
+        private fun inputFrame(
+            native: com.pokedaisy.app.mouse.NativeBattleMouse.Native?, committed: Int, rawIdle: Boolean,
+            companion: Boolean, fieldAction: Boolean, gate: String,
+        ): BattleInputEvidence.Frame? {
+            val sources = inputSources ?: return null
+            return BattleInputEvidence.Frame(sources, heldKeys, tapKeys, turboKeys, resetKeys, mixedKeys,
+                upstreamKeys, committed, rawIdle, companion, fieldAction, gate,
+                native?.visible()?.name.orEmpty(), native?.ready()?.name.orEmpty(), native?.cursor() ?: -1)
+        }
+
+        /** Fresh field flags come from this completed frame, after pending state and field jobs have run. */
+        fun serviceFieldMaintenance() {
+            val field = fieldState
+            val blocked = MgbaCore.FIELD_BATTLE or MgbaCore.FIELD_LOCKED or
+                MgbaCore.FIELD_WINDOW or MgbaCore.FIELD_TEXT
+            gameSession.serviceFieldMaintenance(gba && running && !rewinding && !holdFrame &&
+                !CoopGuards.statesBlocked && battleInput.gameState == BATTLE_INPUT_NONE &&
+                fieldScreen && (wideScene == -1 || wideScene == WideCamera.SCENE_FIELD) &&
+                field and MgbaCore.FIELD_KNOWN != 0 && field and blocked == 0)
         }
 
         private fun sampleCompletedBattleFrame() {

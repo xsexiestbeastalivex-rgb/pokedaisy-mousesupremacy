@@ -26,6 +26,9 @@
 // this port against the same captures (native-capture/mgba_dump's `wide` / `widecheck`).
 
 #include "pk_wide.h"
+#ifdef PK_WIDE_CACHE
+#include "pk_wide_cache_view.h"
+#endif
 #include "pk_cheats.h"
 
 #include <stdbool.h>
@@ -1762,8 +1765,8 @@ static bool holeLeft;   // pk_wide_hole: the host puts the frame's own pixels in
 // the more so the bigger the window. Only an ordinary field frame goes through it (cacheReady); anything else
 // takes the full rebuild, and the two give the same pixels. Water and flowers change tiles every few frames: those
 // cells are redrawn a few a frame (CACHE_STALE_CELLS), so in the margins an animation can run a few frames late.
-#define RING_PX 512
-#define RING_CELLS (RING_PX / 8)
+#define RING_PX PK_WIDE_CACHE_SIZE
+#define RING_CELLS (RING_PX / PK_WIDE_CACHE_CELL_SIZE)
 #define CACHE_STALE_CELLS 64
 static uint32_t ringPx[RING_PX][RING_PX];   // the BGs' colour at a world pixel
 static uint8_t ringMeta[RING_PX][RING_PX];  // prio << 4 | layer
@@ -5137,7 +5140,7 @@ static int viewInner(struct mCore* core, const uint32_t* frame, uint32_t* out, s
     holeLeft = false;
     int cacheBgs = 0;
     if (cacheMode && valid && !centre && !overlay && !overlayDim && !transition && !tintShown && mix >= 256 && rawView.w &&
-        cacheReady(io(0x14) & 0x1FF, io(0x16) & 0x1FF, bestH, bestV, &cacheBgs)) {
+        pk_wide_cache_covers_view(v, bestCx, bestCy) && cacheReady(io(0x14) & 0x1FF, io(0x16) & 0x1FF, bestH, bestV, &cacheBgs)) {
         if (lineHookless) tilesCompared();
         tileSide ^= 1;
         // A flight's camera offset moves the area sign with it: kept still as the full draw does (flyLabel), its pixels

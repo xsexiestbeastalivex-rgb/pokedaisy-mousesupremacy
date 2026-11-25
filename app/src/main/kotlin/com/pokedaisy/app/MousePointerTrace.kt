@@ -5,6 +5,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import android.view.InputDevice
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.ViewConfiguration
 import com.pokedaisy.app.mouse.NativeBattleMouse
@@ -24,6 +25,7 @@ internal class MousePointerTrace private constructor(
     private val slop: Float,
     enableBattle: Boolean,
     internal val automaticBattleReference: Boolean,
+    internal val ownershipEvidence: BattleInputEvidence?,
 ) {
     private val battleRows = java.util.concurrent.atomic.AtomicInteger(1500)
     internal val battleMouse = if (enableBattle) NativeBattleMouse { row ->
@@ -68,8 +70,9 @@ internal class MousePointerTrace private constructor(
         note("invalidate reason=$reason through=$through layout=$layoutEpoch")
     }
 
-    fun padCallback(action: Int, time: Long) {
+    fun padCallback(action: Int, time: Long, source: Int, buttons: Int) {
         if (action == MotionEvent.ACTION_MOVE || !active()) return
+        ownershipEvidence?.raw("channel=native-pad action=$action event=$time source=$source buttons=$buttons")
         battleMouse?.interrupt("native-pad-contact")
         padEpoch.incrementAndGet()
         main.post {
@@ -105,8 +108,16 @@ internal class MousePointerTrace private constructor(
 
     private fun active() = battleMouse != null || (remaining > 0 && SystemClock.uptimeMillis() <= deadline)
 
+    fun key(event: KeyEvent) {
+        if (event.repeatCount != 0) return
+        ownershipEvidence?.raw("channel=key action=${event.action} event=${event.eventTime} " +
+            "down=${event.downTime} code=${event.keyCode} source=${event.source} canceled=${event.isCanceled}")
+    }
+
     fun controllerMotion(event: MotionEvent, triggers: ControllerTriggers) {
-        if (active() && triggers.hasManualInput(GbaInput.motionBits(event))) invalidate("upstream-controller")
+        val bits = GbaInput.motionBits(event)
+        ownershipEvidence?.controller(bits, triggers.leftDown, triggers.rightDown, event.eventTime, event.source)
+        if (active() && triggers.hasManualInput(bits)) invalidate("upstream-controller")
     }
 
     fun deviceChanged(id: Int) {
@@ -135,7 +146,12 @@ internal class MousePointerTrace private constructor(
                 updateLayout(scene())
                 release()
             }
-            if (dispatchRow != 0L) note("dispatch raw=$dispatchRow handled=$handled")
+            if (dispatchRow != 0L) {
+                note("dispatch raw=$dispatchRow handled=$handled")
+                if (event.actionMasked != MotionEvent.ACTION_MOVE && event.actionMasked != MotionEvent.ACTION_HOVER_MOVE) {
+                    ownershipEvidence?.raw("channel=$channel raw=$dispatchRow phase=forwarded handled=$handled")
+                }
+            }
             return handled
         } finally {
             dispatchRow = previous
@@ -215,6 +231,13 @@ internal class MousePointerTrace private constructor(
         if (ordinaryMove) lastMove = SystemClock.uptimeMillis()
 
         val raw = ++row
+        if (!ordinaryMove || (edge?.cancelled() ?: 0) != 0) ownershipEvidence?.raw(
+            "channel=$channel raw=$raw event=${event.eventTime} down=${event.downTime} " +
+                "action=$action source=${event.source} tool=$tool device=${device.alias()} " +
+                "buttons=${event.buttonState} actionButton=${event.actionButton} count=${event.pointerCount} " +
+                "adapter=$source owner=${hit.owner()} disposition=${routed?.disposition()} " +
+                "gesture=${routed?.gesture()} focus=$focused layout=$layoutEpoch frame=${scene?.drawnFrame}",
+        )
         note("activity raw=$raw channel=$channel event=${event.eventTime} down=${event.downTime} " +
             "device=${device.alias()} source=${event.source} tool=$tool action=$action " +
             "buttons=${event.buttonState} actionButton=${event.actionButton} count=${event.pointerCount} " +
@@ -312,8 +335,10 @@ internal class MousePointerTrace private constructor(
             val profile = Profile.entries.singleOrNull { File(activity.filesDir, it.marker).isFile } ?: return null
             val enableBattle = profile != Profile.DIRECT && File(activity.filesDir, "ms_native_battle").isFile
             val automaticReference = enableBattle && File(activity.filesDir, "ms_native_battle_reference").isFile
+            val evidence = if (enableBattle && File(activity.filesDir, "ms_native_battle_ownership").isFile)
+                BattleInputEvidence({ row -> Log.i("MsBattleInput", row) }) else null
             return MousePointerTrace(profile, ViewConfiguration.get(activity).scaledTouchSlop.toFloat(),
-                enableBattle, automaticReference)
+                enableBattle, automaticReference, evidence)
         }
     }
 }

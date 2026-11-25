@@ -42,6 +42,10 @@ Complete a pulse only from an applied edge and the observed expected state trans
 
 ## Acceptance and tests
 
+The 500 ms visited-area flight check is maintenance. It coalesces in the game session outside the foreground field-action queue and waits for an advancing frame with positively observed safe overworld state and safe GBA call depth. A foreground companion request still reserves at enqueue and during its queued work, including a zero-mask phase. The flight renderer's status and turn latch do not call the cartridge. Non-joystick reports cannot release or reassert held analog trigger keys.
+
+The separate development-only `ms_native_battle_ownership` marker enables bounded raw edges and final-mask transition logs. Keep their decision frame distinct from native applied and swapped observations. A logged attempt or zero-mask reservation does not establish an applied A or B.
+
 Use an integration fake sink with a per-step mask ledger before enabling gameplay. Reproduce [the ownership cases](../TESTING.md#ownership-tabletop-and-regression-cases) and then repeat on the Android frame boundary. Assert zero mouse bits when vetoed and unchanged upstream masks (including hold), one edge per admitted gesture, matching applied and observed records, new click required after cancellation, and no confirm from an old presented image. Check physical/raw manual hold under an upstream exclusive script, coexistence after it ends, overlay dismissal, native DS touch, and mode-off equivalence.
 
 ## Open work

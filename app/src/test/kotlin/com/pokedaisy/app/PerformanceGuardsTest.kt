@@ -52,6 +52,23 @@ class PerformanceGuardsTest {
     }
 
     @Test
+    fun theFlightPollAndForegroundActionsKeepTheirDifferentOwnersAtTheFrameBoundary() {
+        val activity = read("PokeDaisyActivity.kt")
+        val engine = read("EmulatorEngine.kt")
+        val periodic = lambda(activity, "private fun syncFlightArea(")
+        assertTrue("the Activity must use the maintenance bridge", "engine.requestFlightAreaMaintenance" in periodic)
+        assertTrue("the poll cannot reserve gameplay", "requestFieldItemJob" !in periodic)
+        assertTrue("the foreground bridge still vetoes queued work",
+            "mouse.interrupt(\"companion-field-request\")" in lambda(engine, "fun requestFieldItemJob("))
+        assertOrdered(engine.substringAfter("while (running) {\n                if (!run.beforeFrame())"),
+            "run.runCore()", "run.afterCore()", "run.watchScreens()", "run.fieldStep()", "run.serviceFieldMaintenance()")
+        val commit = lambda(engine, "private fun commitBattleMouse() {")
+        assertOrdered(commit.substring(commit.indexOf("commitWithMouseReservation")),
+            "commitWithMouseReservation", "withMouseInput", "hasQueuedFieldWork()",
+            "mouse.commit", "MgbaCore.pkSetKeys(final)", "evidence = inputFrame", "inputEvidence?.frame")
+    }
+
+    @Test
     fun framePublicationUsesCompletedPixelsAndMatchingMetadata() {
         // The GL thread uploads a copy made after the core step. Sample and window follow the
         // same copy; neither a held draw nor a not-yet-swapped draw is fresh presentation.

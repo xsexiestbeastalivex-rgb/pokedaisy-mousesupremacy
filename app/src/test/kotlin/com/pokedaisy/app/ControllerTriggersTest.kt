@@ -1,6 +1,9 @@
 package com.pokedaisy.app
 
+import android.view.InputDevice
+import android.view.KeyEvent
 import android.view.MotionEvent.*
+import com.pokedaisy.app.companion.data.CoreKey
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -33,6 +36,27 @@ class ControllerTriggersTest {
         }
         assertEquals(0.7f, both.left, 0f)
         assertEquals(0.85f, both.right, 0f)
+    }
+
+    @Test fun aMouseReportCannotReedgeAHeldTriggerMappedToA() {
+        val input = GbaInput()
+        input.setControls(mapOf(KeyEvent.KEYCODE_BUTTON_R2 to CoreKey.A))
+        val controller = ControllerTriggerKeys()
+        val edges = mutableListOf<Int>()
+        val deliver: (Int, Boolean) -> Unit = { key, down ->
+            assertTrue(input.onKey(key, down))
+            edges += input.mask
+        }
+        val held = ControllerTriggers(0f, .8f)
+        val released = ControllerTriggers(0f, 0f)
+        controller.update(InputDevice.SOURCE_JOYSTICK, held, deliver)
+        controller.update(InputDevice.SOURCE_TOUCHSCREEN, released, deliver)
+        controller.update(InputDevice.SOURCE_MOUSE, released, deliver)
+        controller.update(InputDevice.SOURCE_JOYSTICK, held, deliver)
+        assertEquals(listOf(CoreKey.A), edges)
+        controller.update(InputDevice.SOURCE_JOYSTICK, released, deliver)
+        controller.update(InputDevice.SOURCE_JOYSTICK, held, deliver)
+        assertEquals(listOf(CoreKey.A, 0, CoreKey.A), edges)
     }
 
     @Test fun upstreamStickAndHatBitsShareTheInterruptionDecision() {

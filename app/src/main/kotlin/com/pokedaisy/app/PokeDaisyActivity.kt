@@ -128,6 +128,9 @@ class PokeDaisyActivity : Activity() {
 
     private var mousePointerTrace: MousePointerTrace? = null
     private var pointerHudOccludes = true
+    private var pointerFieldHudVisible = false
+    private val pointerBattleButtons = com.pokedaisy.app.companion.ui.BattleButtonsPointerRegions()
+    private val pointerPerformance = com.pokedaisy.app.companion.ui.PlacedHudRegion()
 
     private val inputDeviceListener = object : android.hardware.input.InputManager.InputDeviceListener {
         override fun onInputDeviceAdded(id: Int) {
@@ -1170,8 +1173,6 @@ class PokeDaisyActivity : Activity() {
     private var flightArea: com.pokedaisy.app.companion.data.FlightArea.Keeper? = null
     /** pk_flight was told "anywhere" since FLIGHT AREA went ANYWHERE. */
     private var flightAreaAnywhereSent = false
-    /** A keeper tick is queued on the emu thread (one at a time). */
-    @Volatile private var flightAreaQueued = false
 
     private fun flightAreaSeen() = Prefs(this).flightArea == com.pokedaisy.app.companion.FlightAreaMode.SEEN
 
@@ -1187,12 +1188,9 @@ class PokeDaisyActivity : Activity() {
             return
         }
         flightAreaAnywhereSent = false
-        if (flightAreaQueued) return
-        flightAreaQueued = true
-        val standing = engine.onField.value && !telemetry.snapshot.value.inBattle
-        engine.requestFieldItemJob(false) { calls, busy ->
-            flightAreaQueued = false
-            flightAreaTick(keeper, support, calls, standing && !busy)
+        engine.requestFlightAreaMaintenance { calls -> flightAreaTick(keeper, support, calls, standing = true) }
+        // The turn notice only consumes the renderer's latch. It does not call the cartridge.
+        engine.postToEmu {
             // The bird turned at a map not seen yet: say why, now and then (it can be met many times a second).
             if (MgbaCore.pkFlightAreaTurned()) runOnUiThread {
                 val now = android.os.SystemClock.uptimeMillis()
@@ -2673,7 +2671,6 @@ class PokeDaisyActivity : Activity() {
         romBlocked = com.pokedaisy.app.companion.data.BlockedGames.forCrc(crc)
         flightArea = com.pokedaisy.app.companion.data.FlightArea.Keeper(filesDir.toOkioPath(), crc)
         flightAreaAnywhereSent = false
-        flightAreaQueued = false
         RetroAchievements.setFlightAnywhere(false)
         states = SaveStates(getExternalFilesDir(null) ?: filesDir, crc)
         val ffMusicCache = FfMusicCache(getExternalFilesDir(null) ?: filesDir, crc, gameBoy = RomIdentity.isGameBoy(r))
@@ -2847,6 +2844,7 @@ class PokeDaisyActivity : Activity() {
             retryUnshownBattle = true)
         engine = EmulatorEngine(input, states!!, ffMusicCache, battleSession, Prefs(this), telemetry).apply {
             battleMouse = mousePointerTrace?.battleMouse
+            battleInputEvidence = mousePointerTrace?.ownershipEvidence
             hudEngine.value = this
             lateFramesSource = { view.lateFrames }
             // The game screen's fastest mode, which no tick that waits for the refresh can outrun (VsyncCheck, GitHub #350).
@@ -4879,7 +4877,8 @@ class PokeDaisyActivity : Activity() {
         // The view fills the stage, and Compose hands its root that whole size as the least it may take: a Box
         // takes it, so the overlay inside keeps its own size (else its tap, FPS / CPU's open / close, was everywhere).
         androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize()) {
-            com.pokedaisy.app.companion.ui.PerformanceOverlay(reading)
+            val pointerModifier = if (mousePointerTrace != null) pointerPerformance.modifier else androidx.compose.ui.Modifier
+            com.pokedaisy.app.companion.ui.PerformanceOverlay(reading, pointerModifier)
         }
     }
 
@@ -4923,8 +4922,10 @@ class PokeDaisyActivity : Activity() {
         val buttonsWanted = battleButtonsOn.value && hudSingleScreen.value && !hudUpright.value && snap.hasData && !snap.unsupported &&
             snap.inBattle && !snap.isDoubleBattle && (!romIsNds || dsFloats.value && !dsPip.value)
         val buttons = buttonsWanted && battleRead && !dsWindowUp
+        val moveAdvice = hudOn.value && !hudUpright.value && snap.moveLearning != null &&
+            hudStyle.value.shows(com.pokedaisy.app.companion.FieldHudPart.MOVE_ADVICE)
         if (mousePointerTrace != null) androidx.compose.runtime.SideEffect {
-            pointerHudOccludes = shown || buttons || snap.moveLearning != null || healShow.value != null
+            pointerHudOccludes = shown || moveAdvice || healShow.value != null
         }
         // Where BATTLE BUTTONS can't stand in for a DS battle's command panel, that panel floats in too.
         androidx.compose.runtime.SideEffect { engine?.dsBattleMenuFloats = dsFloats.value && !dsPip.value && !buttonsWanted }
@@ -4971,10 +4972,11 @@ class PokeDaisyActivity : Activity() {
                 openPanel = hudOpenPanel.value, openTick = hudOpenTick.intValue,
                 onTap = { com.pokedaisy.app.companion.FeatureTips.used(TipId.HUD) },
                 onPanel = { hudPanelOpen.value = it },
+                onPointerVisible = mousePointerTrace?.let { { visible -> pointerFieldHudVisible = visible } },
             ) }
             // MOVE ADVICE: the card over the game while its summary asks which move to forget (also in a battle or a menu,
             // where the HUD itself is hidden).
-            if (hudOn.value && !hudUpright.value && snap.moveLearning != null && hudStyle.value.shows(com.pokedaisy.app.companion.FieldHudPart.MOVE_ADVICE)) {
+            if (moveAdvice) {
                 com.pokedaisy.app.companion.ui.MoveLearningHudCard(snap, hudStyle.value)
             }
             // A DS game: the game's own buttons over the end of its text box, driven like Gen 3's menus.
@@ -4996,6 +4998,7 @@ class PokeDaisyActivity : Activity() {
                 clearTop = hudClear.value.first, clearBottom = hudClear.value.second,
                 onWindow = { battlePicking.value = it },
                 style = battleStyle.value,
+                pointerRegions = pointerBattleButtons.takeIf { mousePointerTrace != null },
             )
             com.pokedaisy.app.companion.ui.QuickMenu(quickMenu, snap, quickActions, quickShown.value, hudStyle.value.look)
             com.pokedaisy.app.companion.ui.HealedAnimation(healShow.value, hudStyle.value.look) { healShow.value = null }
@@ -5350,6 +5353,7 @@ class PokeDaisyActivity : Activity() {
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         val trace = mousePointerTrace
+        trace?.key(event)
         if (trace?.automaticBattleReference == true && event.keyCode == KeyEvent.KEYCODE_F8) {
             if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0 && hasWindowFocus()) {
                 trace.armBattleReference(::mousePointerScene)
@@ -5776,8 +5780,7 @@ class PokeDaisyActivity : Activity() {
     // Many Android handhelds (Retroid's) report L2/R2 as analog axes, not BUTTON_L2/R2 keys: a trigger
     // crossing half way is that key, through the hotkeys (their switch and bindings, issue #54) and
     // then the game's controls. Hard-wired to FF / slow-mo holds, they used to ignore both.
-    private var rtDown = false
-    private var ltDown = false
+    private val controllerTriggerKeys = ControllerTriggerKeys()
 
     // A controller's stick / D-pad / triggers, before the views: with the companion in this
     // window (side panel, phone upright) a focused ComposeView would see them first.
@@ -5819,11 +5822,19 @@ class PokeDaisyActivity : Activity() {
         val quad = picture?.quad?.let(::viewRect)
         val visibleTexture = picture?.texture?.let(::viewRect)
         val pictureClip = if (clip != null && visibleTexture != null) clip.intersection(visibleTexture) else clip
+        val battleHud = pointerBattleButtons.bounds()
+        val performance = pointerPerformance.bounds()
+        val message = hud.pointerVisibleBounds()
+        // These Compose bounds already use the window origin, unlike stage.pointerChrome and stage.pointerCompanion.
+        val hudRegions = (battleHud.orEmpty() + listOfNotNull(performance)).map {
+            com.pokedaisy.mousesupremacy.pointer.PointerLayout.Bounds(it.left, it.top, it.right, it.bottom)
+        } + listOfNotNull(message)
+        val unmeasuredHud = pointerHudOccludes || pointerFieldHudVisible || battleHud == null ||
+            performanceShown.value && performance == null || hud.visibility == View.VISIBLE && message == null
         val layout = com.pokedaisy.mousesupremacy.pointer.PointerLayout(
             bounds, stage.pointerCompanion?.let(::windowRect), chrome, touchControls.pointerReservations(),
             stage.pointerOutsideDismiss || !touchWindowsAllowed() || touchControls.pointerPadHeld || debugMirror,
-            pointerHudOccludes || performanceShown.value || hud.visibility == View.VISIBLE,
-            pictureClip, quad, picture?.transform ?: -1L,
+            unmeasuredHud, pictureClip, quad, picture?.transform ?: -1L, hudRegions,
         )
         return MousePointerTrace.Scene(layout, picture?.frame)
     }
@@ -5859,10 +5870,7 @@ class PokeDaisyActivity : Activity() {
         onGameMotion(event, ControllerTriggers.read(event::getAxisValue))
 
     private fun onGameMotion(event: MotionEvent, triggers: ControllerTriggers): Boolean {
-        if (::engine.isInitialized) {
-            if (triggers.rightDown != rtDown) { rtDown = triggers.rightDown; triggerKey(KeyEvent.KEYCODE_BUTTON_R2, rtDown) }
-            if (triggers.leftDown != ltDown) { ltDown = triggers.leftDown; triggerKey(KeyEvent.KEYCODE_BUTTON_L2, ltDown) }
-        }
+        if (::engine.isInitialized) controllerTriggerKeys.update(event.source, triggers, ::triggerKey)
         if (::sidePanel.isInitialized && sidePanel.windowOpen && menuMotion(event)) return true
         if (bottomFocus.value && bottomMotion(event)) return true
         if (quickMenu.open && quickMotion(event)) return true
@@ -5919,7 +5927,7 @@ class PokeDaisyActivity : Activity() {
         if (::engine.isInitialized) gameActions.cancelTouch()
         keyCaptureShown = on
         input.releaseAll()
-        rtDown = false; ltDown = false
+        controllerTriggerKeys.reset()
         if (::view.isInitialized) { view.camera.stickX = 0f; view.camera.stickY = 0f }
         if (::engine.isInitialized) gameActions.clear()
         reloadHotkeys()

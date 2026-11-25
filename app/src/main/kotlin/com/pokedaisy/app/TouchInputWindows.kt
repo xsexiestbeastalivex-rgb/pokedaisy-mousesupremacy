@@ -56,7 +56,7 @@ import kotlin.math.roundToInt
 class TouchInputWindows(private val anchor: View, private val tracker: TouchPressTracker) {
     private val thread = HandlerThread("pokedaisy-touch", Process.THREAD_PRIORITY_URGENT_DISPLAY).apply { start() }
     private val handler = Handler(thread.looper)
-    @Volatile internal var onPointerCallback: ((Int, Long) -> Unit)? = null
+    @Volatile internal var onPointerCallback: ((Int, Long, Int, Int) -> Unit)? = null
     @Volatile internal var pointerContactHeld = false
         private set
     // Window-manager ownership follows the anchor's display, not the Activity that originally made it (SWAP).
@@ -102,7 +102,7 @@ class TouchInputWindows(private val anchor: View, private val tracker: TouchPres
         override fun onTouchEvent(e: MotionEvent): Boolean {
             n = 0
             val action = e.actionMasked
-            onPointerCallback?.invoke(action, e.eventTime)
+            onPointerCallback?.invoke(action, e.eventTime, e.source, e.buttonState)
             // Debug builds: how long a press waited before it reached us (the UI thread's waits shouldn't show here).
             if (BuildConfig.DEBUG && (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN)) {
                 Log.d("pokedaisy/touch", "press after ${android.os.SystemClock.uptimeMillis() - e.eventTime} ms")

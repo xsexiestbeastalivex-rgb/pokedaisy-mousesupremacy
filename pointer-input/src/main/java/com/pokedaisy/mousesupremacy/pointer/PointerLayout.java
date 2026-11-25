@@ -7,10 +7,16 @@ import java.util.List;
 /** Window-local exclusions and the supported portion of the renderer's last drawn picture. */
 public record PointerLayout(Bounds window, Bounds companion, List<Bounds> chrome,
                             List<Bounds> controls, boolean modal, boolean hud,
-                            Bounds clip, Bounds gameQuad, long transform) {
+                            Bounds clip, Bounds gameQuad, long transform, List<Bounds> hudRegions) {
     public PointerLayout {
         chrome = Collections.unmodifiableList(new ArrayList<>(chrome));
         controls = Collections.unmodifiableList(new ArrayList<>(controls));
+        hudRegions = Collections.unmodifiableList(new ArrayList<>(hudRegions));
+    }
+
+    public PointerLayout(Bounds window, Bounds companion, List<Bounds> chrome, List<Bounds> controls,
+                         boolean modal, boolean hud, Bounds clip, Bounds gameQuad, long transform) {
+        this(window, companion, chrome, controls, modal, hud, clip, gameQuad, transform, Collections.emptyList());
     }
 
     public enum Owner { OUTSIDE, COMPANION, CHROME, OVERLAY, TOUCH_CONTROLS, HUD, GAME, UNOWNED }
@@ -49,6 +55,7 @@ public record PointerLayout(Bounds window, Bounds companion, List<Bounds> chrome
         if (companion != null && companion.contains(x, y)) return new Hit(Owner.COMPANION, null);
         if (modal) return new Hit(Owner.OVERLAY, null);
         if (contains(controls, x, y)) return new Hit(Owner.TOUCH_CONTROLS, null);
+        if (contains(hudRegions, x, y)) return new Hit(Owner.HUD, null);
         if (clip == null || !clip.contains(x, y)) return new Hit(Owner.UNOWNED, null);
         if (hud) return new Hit(Owner.HUD, null);
         if (gameQuad == null || !gameQuad.contains(x, y)) return new Hit(Owner.UNOWNED, null);

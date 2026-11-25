@@ -1,6 +1,7 @@
 package com.pokedaisy.app
 
 import android.view.InputDevice
+import android.view.KeyEvent
 import android.view.MotionEvent
 
 /** Android events end here; the mappings and input state live in the shared GbaInput. */
@@ -29,5 +30,28 @@ internal data class ControllerTriggers(val left: Float, val right: Float) {
             maxOf(axis(MotionEvent.AXIS_LTRIGGER), axis(MotionEvent.AXIS_BRAKE)),
             maxOf(axis(MotionEvent.AXIS_RTRIGGER), axis(MotionEvent.AXIS_GAS), axis(MotionEvent.AXIS_THROTTLE)),
         )
+    }
+}
+
+/** Only joystick reports can change the held analog trigger keys. A mouse report has no trigger axes. */
+internal class ControllerTriggerKeys {
+    private var rightDown = false
+    private var leftDown = false
+
+    fun update(source: Int, triggers: ControllerTriggers, send: (Int, Boolean) -> Unit) {
+        if (source and InputDevice.SOURCE_JOYSTICK != InputDevice.SOURCE_JOYSTICK) return
+        if (triggers.rightDown != rightDown) {
+            rightDown = triggers.rightDown
+            send(KeyEvent.KEYCODE_BUTTON_R2, rightDown)
+        }
+        if (triggers.leftDown != leftDown) {
+            leftDown = triggers.leftDown
+            send(KeyEvent.KEYCODE_BUTTON_L2, leftDown)
+        }
+    }
+
+    fun reset() {
+        rightDown = false
+        leftDown = false
     }
 }

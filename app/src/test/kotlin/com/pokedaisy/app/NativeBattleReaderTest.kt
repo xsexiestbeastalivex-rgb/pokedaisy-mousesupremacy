@@ -1,6 +1,15 @@
 package com.pokedaisy.app
 
 import com.pokedaisy.app.companion.data.MemoryReader
+import com.pokedaisy.app.companion.data.BATTLE_INPUT_ACTION_SELECT
+import com.pokedaisy.app.companion.data.GameCalls
+import com.pokedaisy.app.game.GameSession
+import com.pokedaisy.app.mouse.NativeBattleMouse
+import com.pokedaisy.app.mouse.NativeBattleMouse.A
+import com.pokedaisy.app.mouse.NativeBattleMouse.B
+import com.pokedaisy.app.mouse.NativeBattleMouse.LEFT
+import com.pokedaisy.app.mouse.NativeBattleMouse.Picture
+import com.pokedaisy.mousesupremacy.pointer.PointerLayout
 import com.pokedaisy.app.mouse.NativeBattleMouse.Menu
 import com.pokedaisy.app.mouse.NativeBattleMouse.Native
 import org.junit.Assert.assertEquals
@@ -137,6 +146,165 @@ class NativeBattleReaderTest {
         write(firstLiteral + 4, 0x080B0AF9, 4)
         write(address + 4, 0x6080, 2)
         assertFalse(NativeBattleReader.ordinarySetupMatches(read, profile))
+    }
+
+    @Test fun periodicFieldBridgeLeavesBothNativeMenusOwnedByThePointer() {
+        for ((profile, directory) in listOf(
+            Profile.FIRERED_REV0 to "firered_randomized_rev0_battle",
+            Profile.EMERALD to "emerald_shiny_battle",
+        )) for (dock in listOf(512, 640)) {
+            val rig = PhysicalInputRig(profile, directory, dock)
+            rig.qualify()
+            rig.press(1)
+            rig.tickAcrossPoll()
+            rig.release()
+            rig.neutral(5)
+            assertEquals(listOf(A), rig.edges())
+            assertEquals(Menu.MOVE, rig.reader.sample().ready())
+
+            // While MOVE is visible, another due poll must neither call the cartridge nor steal Back.
+            rig.masks.clear()
+            rig.press(2)
+            rig.tickAcrossPoll()
+            rig.release()
+            rig.neutral(5)
+            assertEquals(listOf(B), rig.edges())
+            assertEquals(Menu.ACTION, rig.reader.sample().ready())
+
+            rig.masks.clear()
+            rig.press(1)
+            var foregroundExecuted = false
+            rig.session.requestField(true) { _, busy -> foregroundExecuted = busy }
+            rig.neutral(1)
+            assertTrue(foregroundExecuted)
+            rig.release()
+            rig.neutral(5)
+            assertTrue("a zero-mask foreground reservation cancelled the old press", rig.edges().isEmpty())
+
+            rig.press(1)
+            rig.step(LEFT) // Real GbaInput touch channel supplies ordinary manual direction.
+            rig.release()
+            rig.neutral(5)
+            assertEquals(listOf(LEFT), rig.edges())
+            rig.masks.clear()
+            rig.press(1)
+            rig.release()
+            rig.neutral(5)
+            assertEquals(listOf(A), rig.edges())
+        }
+    }
+
+    /** Real Android frame-input components with fixture-derived native menu snapshots. */
+    private class PhysicalInputRig(private val profile: Profile, directory: String, dock: Int) {
+        private val fixture = Fixture(directory)
+        private val fade = profile.fade ?: FADE
+        val reader = NativeBattleReader(fixture, profile, fade)
+        private val input = GbaInput()
+        private val trace = mutableListOf<String>()
+        private val mouse = NativeBattleMouse { trace += it }
+        val masks = mutableListOf<Int>()
+        private val calls = object : GameCalls {
+            override fun call(fn: Long, a0: Int, a1: Int, a2: Int, a3: Int): Long = error("unsafe field call")
+            override fun read(addr: Long, len: Int) = fixture.readCoreMemory(addr, len)
+            override fun write(addr: Long, bytes: ByteArray): Boolean = error("unexpected write")
+        }
+        val session = GameSession(calls, { true }) { _, failure -> throw failure }
+        private val fieldWidth = 1600f - dock
+        private val plane = PointerLayout.Bounds(0f, 0f, fieldWidth, 640f)
+        private val gamePoint = PointerLayout(PointerLayout.Bounds(0f, 0f, 1600f, 900f),
+            PointerLayout.Bounds(fieldWidth, 0f, 1600f, 900f), emptyList(), emptyList(),
+            false, false, plane, plane, dock.toLong()).hit(fieldWidth * 0.60f, 512f).pixel()
+        private var frame = 40L
+        private var gesture = 0L
+        private var destination: Menu? = null
+        private var busyFrames = 0
+        private val transform = dock.toLong()
+
+        init {
+            fixture.set(profile.config.battleTypeFlags, 4, 0, 0, 0)
+            fixture.setWord(profile.config.gMain + 8, profile.ordinaryReturn)
+            fixture.set(fade, *IntArray(10))
+            showMenu(Menu.ACTION)
+            mouse.session(true)
+            mouse.layout(1, dock.toLong())
+            neutral(2)
+        }
+
+        private fun showMenu(menu: Menu) {
+            val move = menu == Menu.MOVE
+            fixture.set(profile.bg0y, if (move) 64 else 160, if (move) 1 else 0)
+            fixture.set(profile.exec, 1, 0, 0, 0)
+            val cfg = profile.config
+            fixture.setWord(cfg.battlerControllerFuncs,
+                (if (move) cfg.handleInputChooseMove else cfg.handleInputChooseAction) + 1)
+            fixture.set(profile.commandBuffer, if (move) 20 else 18, 0, 0, 0, 33, 0, 45, 0, 0, 0, 0, 0)
+            fixture.set(if (move) cfg.moveCursor else cfg.actionCursor, 0)
+        }
+
+        fun qualify() {
+            step(A)
+            step()
+            step(B)
+            neutral(3)
+            step(B)
+            neutral(4)
+            assertTrue(trace.any { "enabled=true" in it })
+            masks.clear()
+        }
+
+        fun press(button: Int) {
+            val point = checkNotNull(gamePoint)
+            mouse.down(++gesture, button, point.x().toFloat(), point.y().toFloat(), transform, frame * 10)
+        }
+
+        fun release() {
+            val point = checkNotNull(gamePoint)
+            mouse.up(gesture, point.x().toFloat(), point.y().toFloat(), transform, frame * 10)
+        }
+
+        fun tickAcrossPoll() {
+            neutral(29)
+            session.requestFieldMaintenance { error("maintenance must be deferred in battle") }
+            neutral(3)
+            assertFalse(session.hasQueuedFieldWork())
+        }
+
+        fun edges() = masks.filter { it != 0 }
+
+        fun neutral(count: Int) = repeat(count) { step() }
+
+        fun step(manual: Int = 0) {
+            input.setTouchBits(manual)
+            val native = reader.sample()
+            mouse.observe(frame, native)
+            val reserved = session.hasQueuedFieldWork()
+            var applied = 0
+            input.sampleMouseInput { stamp ->
+                input.withMouseInput(stamp) { idle, manualOwner ->
+                    if (reserved) mouse.interrupt("upstream-gate")
+                    mouse.commit(frame, input.mask, !reserved && idle, !reserved && manualOwner) { applied = it }
+                }
+            }
+            masks += applied
+            val next = destination
+            if (next != null) {
+                if (busyFrames-- == 0) {
+                    showMenu(next)
+                    destination = null
+                }
+            } else if ((native.ready() == Menu.ACTION && applied == A) ||
+                (native.ready() == Menu.MOVE && applied == B)) {
+                destination = if (native.ready() == Menu.ACTION) Menu.MOVE else Menu.ACTION
+                busyFrames = 1
+                fixture.set(profile.exec, 0, 0, 0, 0)
+            }
+            val sample = mouse.applied(frame, frame + 1, reader.sample())
+            frame++
+            if (sample != null) mouse.show(Picture(sample, transform, frame * 10))
+            session.serviceField(true, false)
+            session.observeField(false, -1, BATTLE_INPUT_ACTION_SELECT, false)
+            session.serviceFieldMaintenance(liveField = false)
+        }
     }
 
     private companion object {

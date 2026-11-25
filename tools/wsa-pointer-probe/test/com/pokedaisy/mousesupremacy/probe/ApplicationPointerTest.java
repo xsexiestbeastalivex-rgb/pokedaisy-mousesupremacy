@@ -20,6 +20,7 @@ public final class ApplicationPointerTest {
 
     public static void main(String[] args) {
         projection();
+        hudOwnership();
         ownership();
         ordinaryTouch();
         conventionalCancellation();
@@ -64,6 +65,21 @@ public final class ApplicationPointerTest {
                 box(23, 34, 360, 270), box(0, 0, 400, 300), 5);
         expect(UNOWNED, clip.hit(22, 75).owner());
         expect(new PointerLayout.Pixel(13, 40), clip.hit(23, 75).pixel());
+    }
+
+    private static void hudOwnership() {
+        var window = box(10, 20, 1010, 640);
+        var panel = box(810, 20, 1010, 640);
+        var quad = box(30, 65, 815, 500);
+        var regions = new java.util.ArrayList<>(List.of(box(750, 80, 895, 160), box(60, 25, 160, 46)));
+        var scene = new PointerLayout(window, panel, List.of(), List.of(), false, false, quad, quad, 42, regions);
+        expect(HUD, scene.hit(760, 120).owner());
+        expect(HUD, scene.hit(70, 40).owner());
+        expect(COMPANION, scene.hit(830, 120).owner());
+        expect(GAME, scene.hit(749.5f, 120).owner()); // adjacent native picture
+        expect(GAME, scene.hit(760, 160).owner()); // bottom is exclusive
+        regions.clear();
+        expect(HUD, scene.hit(760, 120).owner()); // immutable scene evidence
     }
 
     private static void ownership() {
