@@ -1,6 +1,6 @@
 # Initialization report and project status
 
-**Milestone** · Phase 0 passed independent review and owner approval. [PR #1](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/pull/1) merged at `4a1779f7e6609c689ac9deee3db75d9573a1bfd8`. Phase 1B captured physical WSA. Phase 1B.2 corrects the diagnostic and replays that evidence in [draft PR #2](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/pull/2).
+**Milestone** · Phase 0 passed independent review and owner approval. [PR #1](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/pull/1) merged at `4a1779f7e6609c689ac9deee3db75d9573a1bfd8`. Phase 1B.2 passed the scoped standalone WSA probe checks and preserves the resulting evidence in [draft PR #2](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/pull/2).
 
 ## Baseline and evidence ledger
 
@@ -19,7 +19,7 @@ Fork and upstream `main` and the peeled upstream `v1.6.2.1` tag all resolved at 
 
 ## Phase 1A probe evidence
 
-The ROM-free build is pinned to [`64644c54b030a1611ca1fe9e24f82cae03e0181b`](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/commit/64644c54b030a1611ca1fe9e24f82cae03e0181b), based on the Phase 0 merge. The [Windows runbook](../../tools/wsa-pointer-probe/README.md) defines the scoped install, physical sequence and evidence review.
+The original ROM-free build is pinned to [`64644c54b030a1611ca1fe9e24f82cae03e0181b`](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/commit/64644c54b030a1611ca1fe9e24f82cae03e0181b), based on the Phase 0 merge. This table records the evidence available at the Phase 1A build. The [Windows runbook](../../tools/wsa-pointer-probe/README.md) includes the subsequent qualification steps.
 
 | Evidence | Result |
 | --- | --- |
@@ -39,14 +39,20 @@ The old crosshair and edge interpretation both depended on standard mouse recogn
 
 | Capability | Windowed and maximized raw physical evidence | Corrected diagnostic |
 | --- | --- | --- |
-| Pre-click hover and region transitions | Both delivered zero-button motion into A and B | Replay passed. Live visual follow-up pending |
-| Alignment | View-local positions agreed with ordinary raw samples and layout bounds. The original crosshair stayed inactive | Verify the raw crosshair against the physical pointer at both centres |
-| Left, right and middle | Distinct masks 1, 2 and 4 with both touch and generic dispatch. Right-click produced no Back in either capture | Replay produced one press, release and click per physical button |
-| Drag and cancellation | Both delivered held motion across the seam and outside. Focus loss delivered release while unfocused in windowed mode and explicit cancel when maximized | Replay retained a drag across the seam without a click, cancelled on exit and focus loss, and rejected the stale release |
-| Settled resize | Both changed bounds. Maximized had a fresh click after re-maximizing | Maximized replay passed. A fresh windowed click and alignment after the resize remain to be observed |
+| Pre-click hover and region transitions | Both delivered zero-button motion into A and B | Replay and corrected physical checks passed in both modes |
+| Alignment | View-local positions agreed with ordinary raw samples and layout bounds. The original crosshair stayed inactive | Operator confirmed raw crosshair alignment at both centres in both modes, including after windowed resize |
+| Left, right and middle | Distinct masks 1, 2 and 4 with both touch and generic dispatch. Right-click produced no Back in either capture | Replay produced one press, release and click per physical button in both modes. Corrected live checks verified left in both modes and right in windowed mode |
+| Drag and cancellation | Both delivered held motion across the seam and outside. Focus loss delivered release while unfocused in windowed mode and explicit cancel when maximized | Replay distinguished drag from click and rejected stale releases. Corrected live checks verified windowed drag release and spatial cancel, plus maximized held-focus cancellation and recovery |
+| Settled resize | Both changed bounds. Maximized had a fresh click after re-maximizing | Corrected windowed resize had aligned hover and one fresh left-click. Maximized restore/re-maximize replay passed, and the corrected APK passed the maximized alignment and click check |
 | Native vertical and horizontal wheel | Both arrived as buttonless touch drags with zero native axes | Optional on WSA. Replay emitted zero mouse edges or inferred scroll |
 
-JDK 17 passed the 9 existing tests, 5 focused WSA tests and 12 replay cases. The [fixture](../../tools/wsa-pointer-probe/test/wsa-replay.tsv) retains only selected Activity events and lifecycle boundaries, relative rounded positions and relative times. Full captures, operator notes, endpoints and session identifiers remain private. The [short live sequence](../../tools/wsa-pointer-probe/README.md#phase-1b2-verification) covers the remaining geometry and integration checks. A stock Android mouse and touchscreen comparison requires an authorized physical Android device and mouse. WSA remains the priority pending the live check.
+JDK 17 passed the 9 existing tests, 5 focused WSA tests and 12 replay cases locally and in Actions. The [fixture](../../tools/wsa-pointer-probe/test/wsa-replay.tsv) retains selected Activity events and lifecycle boundaries, relative rounded positions and relative times. Full captures, operator notes, endpoints and session identifiers remain private.
+
+The scoped [build run](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/actions/runs/45544100871) packaged source `8557ca904fdffecdc0310c29e4c0f6f518b2d5e3`. [Artifact 14991155382](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/actions/runs/45544100871/artifacts/14991155382) has archive SHA-256 `9c24700f8bff142f7ad4695c9106b6a40d68b96f12335ce70f1165abf2e88be4`. The bundled APK has SHA-256 `a4ba6312abbe9f2359e20a96026b142d9de5f2ca8d48d5a631ce1a7b67b466db` and one APK v2 signer with certificate SHA-256 `1d254bd60b853137cf68863fe67db81591026f5743d80c4601e9c7c49b80600b`. The archive, embedded commit and installed APK bytes matched. The previous probe export was backed up locally before replacing the older signing identity. Windows PowerShell 5.1 completed `Prepare` and `Collect` with the default build directory on the actual WSA target.
+
+Both corrected physical traces matched their run IDs, source and `wsa-experimental` profile with no discarded boundaries. Each recorded a virtual Android input device for the translated pointer. Windowed events `1458–1468` show one left and one right click. Events `1474–2166` show press, drag across the seam and release without a click. Events `5373–5375` show a fresh click after the layout settled. Maximized events `2063–2319` show held input, focus loss, one normalized cancel and a later Android cancel with no second edge. Events `2481–2483` show the first fresh click on return. The unfocused cancel had a different local-coordinate frame, so it was excluded from alignment assessment. The final restore in the maximized trace came from keyboard refocus for export.
+
+The evidence qualifies this WSA host for the tested standalone interaction path and supports keeping it as the priority. A conventional mouse and real-touch control requires an authorized stock Android device and mouse. Later PokeDaisy-specific routing, menu ownership and confirmation require separate verification and approval.
 
 ### Decisions to consolidate before Phase 2
 

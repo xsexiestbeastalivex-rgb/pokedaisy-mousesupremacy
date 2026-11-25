@@ -1,6 +1,6 @@
 # Windows Subsystem for Android pointer verification
 
-**Status** · The Phase 1B traces establish raw WSA delivery for hover, all three buttons and drag. The experimental interpretation has passed replay. [Phase 1B.2 evidence](PROJECT_STATUS.md#phase-1b2-wsa-compatibility) tracks the remaining live qualification and stock Android control.
+**Status** · The Phase 1B traces establish raw WSA delivery for hover, all three buttons and drag. The experimental interpretation passed replay and the short corrected-probe physical checks on the existing WSA host. [Phase 1B.2 evidence](PROJECT_STATUS.md#phase-1b2-wsa-compatibility) records the scope, build and pending stock Android control.
 
 This procedure provides evidence for [platform input](specifications/01-platform-input.md), [input ownership](specifications/02-input-ownership.md), [viewport geometry](specifications/04-viewport-geometry.md), [companion integration](specifications/12-companion-feedback.md) and [diagnostics](specifications/13-diagnostics.md). See [development](DEVELOPMENT.md) for APK setup and [testing](TESTING.md) for the other verification layers.
 
