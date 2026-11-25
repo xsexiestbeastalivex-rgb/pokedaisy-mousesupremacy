@@ -11,10 +11,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.unit.dp
 import app.cash.paparazzi.DeviceConfig
+import app.cash.paparazzi.HtmlReportWriter
 import app.cash.paparazzi.Paparazzi
 import com.android.resources.ScreenOrientation
-import app.cash.paparazzi.Snapshot
-import app.cash.paparazzi.SnapshotHandler
 import com.pokedaisy.app.companion.BattleStyle
 import com.pokedaisy.mousesupremacy.pointer.PointerLayout
 import com.pokedaisy.mousesupremacy.pointer.PointerLayout.Bounds
@@ -26,7 +25,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
-import java.awt.image.BufferedImage
 
 /** Exercise real Compose placement and the same window-local hit boundary the Activity uses, without screenshot goldens. */
 class BattleHudPointerTest {
@@ -34,14 +32,7 @@ class BattleHudPointerTest {
     val paparazzi = Paparazzi(
         deviceConfig = DeviceConfig.PIXEL_5.copy(screenWidth = 1920, screenHeight = 1080, orientation = ScreenOrientation.LANDSCAPE),
         theme = "android:Theme.Material.NoActionBar",
-        snapshotHandler = object : SnapshotHandler {
-            override fun newFrameHandler(snapshot: Snapshot, frameCount: Int, fps: Int) =
-                object : SnapshotHandler.FrameHandler {
-                    override fun handle(image: BufferedImage) = Unit
-                    override fun close() = Unit
-                }
-            override fun close() = Unit
-        },
+        snapshotHandler = HtmlReportWriter(),
     )
 
     private val setup = FieldHudScreenshotTest()
