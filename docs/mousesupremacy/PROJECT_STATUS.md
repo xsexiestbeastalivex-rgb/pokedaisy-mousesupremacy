@@ -1,6 +1,6 @@
 # Initialization report and project status
 
-**Milestone** · Phase 0 passed independent review and owner approval. [PR #1](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/pull/1) merged at `4a1779f7e6609c689ac9deee3db75d9573a1bfd8`. Phase 1A is owner-authorized. The standalone probe builds and its host-independent checks pass. Physical Android and WSA evidence is outstanding.
+**Milestone** · Phase 0 passed independent review and owner approval. [PR #1](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/pull/1) merged at `4a1779f7e6609c689ac9deee3db75d9573a1bfd8`. Phase 1B captured physical WSA. Phase 1B.2 corrects the diagnostic and replays that evidence in [draft PR #2](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/pull/2).
 
 ## Baseline and evidence ledger
 
@@ -31,21 +31,26 @@ The ROM-free build is pinned to [`64644c54b030a1611ca1fe9e24f82cae03e0181b`](htt
 | Stock Android physical mouse | Unavailable in the current environment. Requires an authorized Android device with a connected mouse and a separate capture. |
 | Physical WSA mouse | Unavailable in the current environment. Requires the owner's existing WSA target and a physical mouse. Collect independent windowed and maximized traces. |
 
-The physical capability verdicts below describe the current evidence availability. Record a session ID and supporting event ranges for each completed test.
+## Phase 1B.2 WSA compatibility
 
-| Capability | Physical WSA windowed | Physical WSA maximized | Stock Android physical mouse |
-| --- | --- | --- | --- |
-| Hover before the first click | Unavailable | Unavailable | Unavailable |
-| Coordinate alignment | Unavailable | Unavailable | Unavailable |
-| Hover transitions between regions | Unavailable | Unavailable | Unavailable |
-| Left button | Unavailable | Unavailable | Unavailable |
-| Right button | Unavailable | Unavailable | Unavailable |
-| Middle button | Unavailable | Unavailable | Unavailable |
-| Vertical scroll | Unavailable | Unavailable | Unavailable |
-| Horizontal scroll | Unavailable | Unavailable | Unavailable |
-| Window focus loss | Unavailable | Unavailable | Unavailable |
-| Gesture cancellation | Unavailable | Unavailable | Unavailable |
-| Behavior after resize | Unavailable | Unavailable | Unavailable |
+Scope covers the ROM-free probe for `MS-INPUT-001` and its diagnostics. On the tested Windows 11 host, WSA `2407.40000.4.0` and Android 13 API 33 delivered physical pre-click hover, region transitions, distinct button identities and drag coordinates as `SOURCE_TOUCHSCREEN`/`TOOL_TYPE_FINGER`. All observed motion used the old alias 0. The old recorder rejected negative guest IDs and could also return 0 when the alias table filled. The traces contain no evidence of table exhaustion and do not preserve the exact ID or lookup result. The revised recorder aliases negative IDs within each session and records virtual, unregistered, or registered lookup status. That status does not establish physical device identity.
+
+The old crosshair and edge interpretation both depended on standard mouse recognition. The revised crosshair uses raw coordinates independently. The explicit WSA profile needs corroborating touch-down and generic button-press evidence tied to a single contact. It deduplicates release, distinguishes drag by movement, and cancels on exit, focus loss, layout changes, or conflicting contacts. Any guest ID can be shared by translated streams, so IDs alone never authorize a button gesture. Buttonless touches and ambiguous wheel-derived swipes retain their raw form. The Windows runner resolves its default build directory from the script body on PowerShell 5.1.
+
+| Capability | Windowed and maximized raw physical evidence | Corrected diagnostic |
+| --- | --- | --- |
+| Pre-click hover and region transitions | Both delivered zero-button motion into A and B | Replay passed. Live visual follow-up pending |
+| Alignment | View-local positions agreed with ordinary raw samples and layout bounds. The original crosshair stayed inactive | Verify the raw crosshair against the physical pointer at both centres |
+| Left, right and middle | Distinct masks 1, 2 and 4 with both touch and generic dispatch. Right-click produced no Back in either capture | Replay produced one press, release and click per physical button |
+| Drag and cancellation | Both delivered held motion across the seam and outside. Focus loss delivered release while unfocused in windowed mode and explicit cancel when maximized | Replay retained a drag across the seam without a click, cancelled on exit and focus loss, and rejected the stale release |
+| Settled resize | Both changed bounds. Maximized had a fresh click after re-maximizing | Maximized replay passed. A fresh windowed click and alignment after the resize remain to be observed |
+| Native vertical and horizontal wheel | Both arrived as buttonless touch drags with zero native axes | Optional on WSA. Replay emitted zero mouse edges or inferred scroll |
+
+JDK 17 passed the 9 existing tests, 5 focused WSA tests and 12 replay cases. The [fixture](../../tools/wsa-pointer-probe/test/wsa-replay.tsv) retains only selected Activity events and lifecycle boundaries, relative rounded positions and relative times. Full captures, operator notes, endpoints and session identifiers remain private. The [short live sequence](../../tools/wsa-pointer-probe/README.md#phase-1b2-verification) covers the remaining geometry and integration checks. A stock Android mouse and touchscreen comparison requires an authorized physical Android device and mouse. WSA remains the priority pending the live check.
+
+### Decisions to consolidate before Phase 2
+
+The owner approved enhanced direct Android touch and a shared semantic interaction engine for conventional mouse, translated WSA mouse and touch adapters. Menu navigation supports vertical and horizontal click-drag and touch-drag. Eligible touch-down highlights the target. A valid release confirms once after target, ownership and readiness checks. Crossing the drag threshold cancels pending confirmation. Retain native wheel on hosts that expose it. Preserve existing touch, DS, companion, keyboard and controller ownership. Formal requirements, gesture thresholds and acceptance criteria are due before Phase 2. [Headquarters disposition](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/pull/2#issuecomment-7152151016) · [Owner refinement](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/pull/2#issuecomment-7152221282)
 
 ## Findings and direction
 

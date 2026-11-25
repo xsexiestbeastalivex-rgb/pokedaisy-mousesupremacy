@@ -19,6 +19,7 @@ import android.util.SparseIntArray;
 import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
+import android.view.ViewConfiguration;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -38,6 +39,8 @@ public final class ProbeActivity extends Activity implements InputManager.InputD
     private final Trace trace = new Trace(Trace.CAPACITY);
     private final SparseIntArray deviceAliases = new SparseIntArray();
     private final PointerState[] devices = new PointerState[MAX_DEVICES + 1];
+    private final WsaPointer[] wsaPointers = new WsaPointer[MAX_DEVICES + 1];
+    private final String[] deviceIdentities = new String[MAX_DEVICES + 1];
     private final Rect aBounds = new Rect();
     private final Rect bBounds = new Rect();
     private final Rect nextA = new Rect();
@@ -51,7 +54,10 @@ public final class ProbeActivity extends Activity implements InputManager.InputD
     private Button mark;
     private String provenance;
     private String session;
+    private boolean wsaCompatibility;
+    private long wsaInvalidatedUptime;
     private String active = OUTSIDE;
+    private String rawHit = OUTSIDE;
     private String latest = "Waiting for pointer";
     private String captureStatus = "Capture off";
     private String scroll = "—";
@@ -82,6 +88,10 @@ public final class ProbeActivity extends Activity implements InputManager.InputD
         provenance = "unspecified";
         if ("physical-wsa".equals(label) || "physical-android".equals(label)
                 || "injected".equals(label)) provenance = label;
+        wsaCompatibility = "physical-wsa".equals(provenance)
+                && "wsa-experimental".equals(intent.getStringExtra("inputProfile"))
+                && "Microsoft Corporation".equalsIgnoreCase(Build.MANUFACTURER)
+                && Build.HARDWARE.startsWith("windows_");
         String requestedSession = intent.getStringExtra("session");
         session = requestedSession != null && requestedSession.matches("[0-9a-f]{32}")
                 ? requestedSession : UUID.randomUUID().toString().replace("-", "");
@@ -102,7 +112,7 @@ public final class ProbeActivity extends Activity implements InputManager.InputD
 
         status = new TextView(this);
         status.setTextSize(12);
-        status.setLines(4);
+        status.setLines(5);
         status.setPadding(dp(8), 0, dp(8), 0);
         root.addView(status, new LinearLayout.LayoutParams(-1, -2));
 
@@ -227,6 +237,8 @@ public final class ProbeActivity extends Activity implements InputManager.InputD
         int alias = alias(event.getDeviceId());
         int action = event.getActionMasked();
         int tool = event.getToolType(0);
+        int source = event.getSource();
+        int buttons = event.getButtonState();
         boolean mouse = tool == MotionEvent.TOOL_TYPE_MOUSE
                 && event.isFromSource(InputDevice.SOURCE_MOUSE);
         float x = event.getRawX();
@@ -237,43 +249,63 @@ public final class ProbeActivity extends Activity implements InputManager.InputD
         PointerState.Action kind = action(action);
         boolean authority = receiver == null || activityMotionDepth == 0;
         PointerState.Result result = null;
-        if (authority && alias != 0 && (mouse || kind == PointerState.Action.CANCEL)) {
-            result = devices[alias].observe(kind, hit, event.getActionButton(),
-                    event.getButtonState(), focused);
-            if (kind == PointerState.Action.CANCEL) {
-                resetDisplay();
-                latest = result.phase();
-            } else if (mouse && focused) {
-                screenX = x;
-                screenY = y;
-                inputAlias = alias;
-                active = result.region();
-                rawButtons = event.getButtonState();
-                heldButtons = result.held();
-                latest = result.phase();
-                if (kind == PointerState.Action.SCROLL) scroll = String.format(Locale.ROOT, "%.2f / %.2f", h, v);
+        String interpretation = null;
+        if (authority) {
+            if (WsaPointer.accepts(wsaCompatibility, source, tool, alias)) {
+                long downTime = event.getDownTime();
+                boolean start = kind == PointerState.Action.DOWN || kind == PointerState.Action.BUTTON_PRESS;
+                if (!start || downTime > wsaInvalidatedUptime || event.getPointerCount() != 1) {
+                    result = wsaPointers[alias].observe(new WsaPointer.Sample(kind, hit, x, y,
+                            downTime, event.getEventTime(), event.getPointerId(0), event.getPointerCount(),
+                            event.getActionButton(), buttons, focused, event.getHistorySize() != 0));
+                }
+                interpretation = "wsa-experimental";
+            } else if (alias != 0 && (mouse || kind == PointerState.Action.CANCEL)) {
+                result = devices[alias].observe(kind, hit, event.getActionButton(), buttons, focused);
+                interpretation = "android-mouse";
             }
-            scheduleRefresh();
-        } else if (authority && kind != PointerState.Action.OTHER && focused) {
-            latest = kind + " source=0x" + Integer.toHexString(event.getSource()) + " tool=" + tool;
-            scheduleRefresh();
+            if (focused && event.isFromSource(InputDevice.SOURCE_CLASS_POINTER)
+                    && kind != PointerState.Action.OTHER) {
+                if (kind == PointerState.Action.CANCEL || kind == PointerState.Action.HOVER_EXIT) {
+                    rawHit = OUTSIDE;
+                    screenX = screenY = Float.NaN;
+                } else {
+                    screenX = x;
+                    screenY = y;
+                    rawHit = hit;
+                }
+                inputAlias = alias;
+                rawButtons = buttons;
+                if (kind == PointerState.Action.SCROLL) scroll = String.format(Locale.ROOT, "%.2f / %.2f", h, v);
+                latest = kind + " source=0x" + Integer.toHexString(source) + " tool=" + tool;
+                scheduleRefresh();
+            }
+            if (result != null && focused) {
+                active = result.region();
+                heldButtons = result.held();
+                latest = interpretation + " " + result.phase();
+            }
         }
 
         if (!trace.recording()) return null;
         Map<String, Object> raw = fields("kind", point, "receiptUptimeMs", receipt,
                 "receiptElapsedNanos", receiptNanos, "eventUptimeMs", event.getEventTime(),
-                "downUptimeMs", event.getDownTime(), "device", alias, "source", event.getSource(),
+                "downUptimeMs", event.getDownTime(), "device", alias,
+                "deviceIdentity", alias == 0 ? "unaliased" : deviceIdentities[alias], "source", source,
                 "toolType", tool, "action", event.getAction(), "actionMasked", action,
-                "actionButton", event.getActionButton(), "buttonState", event.getButtonState(),
+                "actionButton", event.getActionButton(), "buttonState", buttons,
                 "pointerId", event.getPointerId(0), "pointerCount", event.getPointerCount(),
                 "actionIndex", event.getActionIndex(), "historySize", event.getHistorySize(),
                 "x", finite(event.getX()), "y", finite(event.getY()), "rawX", finite(x), "rawY", finite(y),
                 "hScroll", finite(h), "vScroll", finite(v), "flags", event.getFlags(),
                 "focused", focused, "receiverRegion", receiver, "hitRegion", hit,
-                "layoutRevision", revision, "handled", null, "normalized", normalized(result));
+                "layoutRevision", revision, "handled", null,
+                "normalized", normalized(result, interpretation));
         boolean move = (kind == PointerState.Action.MOVE || kind == PointerState.Action.HOVER_MOVE)
-                && (result == null || (!result.regionChanged() && !result.firstUnpressedMove()));
-        trace.add(raw, move ? point + ":" + kind : null);
+                && (result == null || (!result.regionChanged() && !result.firstUnpressedMove()
+                && result.cancelled() == 0 && !"drag-start".equals(result.phase())));
+        String contact = kind == PointerState.Action.MOVE ? ":" + event.getDownTime() : "";
+        trace.add(raw, move ? point + ":" + kind + contact : null);
         return raw;
     }
 
@@ -293,9 +325,10 @@ public final class ProbeActivity extends Activity implements InputManager.InputD
         };
     }
 
-    private static Map<String, Object> normalized(PointerState.Result result) {
+    private static Map<String, Object> normalized(PointerState.Result result, String interpretation) {
         if (result == null) return null;
-        return fields("phase", result.phase(), "region", result.region(), "pressed", result.pressed(),
+        return fields("interpretation", interpretation, "phase", result.phase(), "region", result.region(),
+                "pressed", result.pressed(), "dragging", result.dragging(), "click", result.click(),
                 "released", result.released(), "cancelled", result.cancelled(), "held", result.held(),
                 "beforeFirstPress", result.beforeFirstPress(),
                 "firstUnpressedMove", result.firstUnpressedMove(), "regionChanged", result.regionChanged());
@@ -304,12 +337,16 @@ public final class ProbeActivity extends Activity implements InputManager.InputD
     private int nextAlias;
 
     private int alias(int deviceId) {
-        if (deviceId < 0) return 0;
         int alias = deviceAliases.get(deviceId);
         if (alias != 0 || nextAlias == MAX_DEVICES) return alias;
         alias = ++nextAlias;
         deviceAliases.put(deviceId, alias);
         devices[alias] = new PointerState();
+        if (wsaCompatibility) wsaPointers[alias] = new WsaPointer(ViewConfiguration.get(this).getScaledTouchSlop());
+        InputDevice device = InputDevice.getDevice(deviceId);
+        deviceIdentities[alias] = device == null
+                ? (deviceId < 0 ? "negative-unregistered" : "unregistered")
+                : (device.isVirtual() ? "virtual" : "registered");
         return alias;
     }
 
@@ -363,19 +400,28 @@ public final class ProbeActivity extends Activity implements InputManager.InputD
     }
 
     private void cancelAll(String reason) {
+        wsaInvalidatedUptime = SystemClock.uptimeMillis();
         for (int i = 1; i <= nextAlias; i++) cancel(i, reason);
         resetDisplay();
     }
 
     private void cancel(int alias, String reason) {
-        PointerState.Result result = devices[alias].cancel(reason);
+        recordCancellation(alias, devices[alias].cancel(reason), "android-mouse");
+        if (wsaPointers[alias] != null) {
+            recordCancellation(alias, wsaPointers[alias].cancel(reason), "wsa-experimental");
+        }
+    }
+
+    private void recordCancellation(int alias, PointerState.Result result, String interpretation) {
         if (result.cancelled() != 0 || result.regionChanged()) {
-            note("cancellation", fields("device", alias, "normalized", normalized(result)));
+            note("cancellation", fields("device", alias, "deviceIdentity", deviceIdentities[alias],
+                    "normalized", normalized(result, interpretation)));
         }
     }
 
     private void resetDisplay() {
         active = OUTSIDE;
+        rawHit = OUTSIDE;
         latest = "Waiting for pointer";
         rawButtons = heldButtons = inputAlias = 0;
         screenX = screenY = Float.NaN;
@@ -406,6 +452,7 @@ public final class ProbeActivity extends Activity implements InputManager.InputD
             traceFile().delete();
             deviceAliases.clear();
             nextAlias = 0;
+            wsaInvalidatedUptime = SystemClock.uptimeMillis();
             resetDisplay();
             scroll = "—";
             marker = 0;
@@ -425,6 +472,7 @@ public final class ProbeActivity extends Activity implements InputManager.InputD
         Map<String, Object> snapshot = trace.stop();
         snapshot.put("session", session);
         snapshot.put("provenance", provenance);
+        snapshot.put("inputProfile", inputProfile());
         snapshot.put("sourceCommit", BuildInfo.COMMIT);
         snapshot.put("appVersion", "1.0");
         snapshot.put("androidApi", Build.VERSION.SDK_INT);
@@ -486,13 +534,17 @@ public final class ProbeActivity extends Activity implements InputManager.InputD
         String coordinates = Float.isFinite(screenX)
                 ? String.format(Locale.ROOT, "%.1f, %.1f", screenX, screenY) : "—";
         String text = String.format(Locale.ROOT,
-                "%s · %s · Focus %s\nRegion %s · Screen %s · Layout %d\n"
-                        + "Held %s · Raw 0x%x · Scroll H/V %s\n%s",
-                captureStatus, provenance, focused ? "yes" : "no", active, coordinates, revision,
+                "%s · %s · Focus %s\nProfile %s\nRaw region %s · Screen %s · Layout %d\n"
+                        + "Interpreted region %s · Held %s · Raw 0x%x · Scroll H/V %s\n%s",
+                captureStatus, provenance, focused ? "yes" : "no", inputProfile(), rawHit, coordinates, revision, active,
                 buttons(heldButtons), rawButtons, scroll, latest);
         if (!text.contentEquals(status.getText())) status.setText(text);
         a.invalidate();
         b.invalidate();
+    }
+
+    private String inputProfile() {
+        return wsaCompatibility ? "wsa-experimental" : "android-standard";
     }
 
     private static String buttons(int mask) {
@@ -531,7 +583,7 @@ public final class ProbeActivity extends Activity implements InputManager.InputD
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeWidth(dp(1));
             canvas.drawCircle(cx, cy, dp(7), paint);
-            if (selected && Float.isFinite(screenX) && Float.isFinite(screenY)) {
+            if (id.equals(rawHit) && Float.isFinite(screenX) && Float.isFinite(screenY)) {
                 Rect region = "A".equals(id) ? aBounds : bBounds;
                 float x = screenX - region.left;
                 float y = screenY - region.top;

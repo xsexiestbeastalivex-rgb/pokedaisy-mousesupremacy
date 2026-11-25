@@ -11,7 +11,8 @@ final class PointerState {
     }
 
     record Result(String phase, String region, boolean regionChanged, boolean firstUnpressedMove,
-                  int pressed, int released, int cancelled, int held, boolean beforeFirstPress) {}
+                  int pressed, int released, int cancelled, int held, boolean beforeFirstPress,
+                  boolean dragging, int click) {}
 
     private int held;
     private String region = OUTSIDE;
@@ -71,6 +72,7 @@ final class PointerState {
 
     private Result result(String phase, boolean changed, boolean firstMove, int pressed, int released,
                           int cancelled) {
-        return new Result(phase, region, changed, firstMove, pressed, released, cancelled, held, !sawPress);
+        return new Result(phase, region, changed, firstMove, pressed, released, cancelled, held,
+                !sawPress, false, 0);
     }
 }

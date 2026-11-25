@@ -4,11 +4,12 @@ param(
     [Parameter(Mandatory)][string]$Serial,
     [Parameter(Mandatory)][string]$RunDirectory,
     [string]$Adb = 'C:\platform-tools\adb.exe',
-    [string]$BuildDirectory = $PSScriptRoot,
+    [string]$BuildDirectory,
     [ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedCommit,
     [ValidateSet('physical-wsa','physical-android','injected')][string]$Provenance = 'physical-wsa',
     [ValidateSet('windowed','maximized','stock-android','emulator','other')][string]$WindowMode = 'windowed',
     [switch]$Connect,
+    [switch]$WsaCompatibility,
     [switch]$Screenshot,
     [string]$OperatorNotes,
     [string]$Mouse,
@@ -20,6 +21,7 @@ $ErrorActionPreference = 'Stop'
 $package = 'com.pokedaisy.mousesupremacy.probe'
 $activity = "$package.ProbeActivity"
 $encoding = New-Object System.Text.UTF8Encoding($false)
+if (-not $BuildDirectory) { $BuildDirectory = $PSScriptRoot }
 $RunDirectory = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($RunDirectory)
 $statePath = Join-Path $RunDirectory 'run.json'
 
@@ -54,6 +56,9 @@ if ($devices -notmatch "(?m)^$escapedSerial\s+device(?:\s|$)" -or
 if ($Action -eq 'Prepare') {
     if (-not $ExpectedCommit) { throw 'Supply the exact trusted APK source commit with -ExpectedCommit.' }
     if (Test-Path -LiteralPath $RunDirectory) { throw 'Choose a new run directory for each session.' }
+    if ($WsaCompatibility -and $Provenance -ne 'physical-wsa') {
+        throw 'Experimental WSA interpretation requires physical-wsa provenance.'
+    }
     $metadata = Get-Content -Raw -LiteralPath (Join-Path $BuildDirectory 'probe-build.json') | ConvertFrom-Json
     if ($metadata.schemaVersion -ne 1 -or $metadata.sourceCommit -cne $ExpectedCommit -or
         $metadata.package -cne $package -or $metadata.activity -cne $activity -or
@@ -74,19 +79,29 @@ if ($Action -eq 'Prepare') {
         if ($wsaVersion.Count -eq 0) { throw 'The existing WSA package was not found on this Windows host.' }
         if ($WindowMode -notin @('windowed','maximized')) { throw 'Select windowed or maximized for WSA.' }
     }
+    $profile = 'android-standard'
+    if ($WsaCompatibility) {
+        $manufacturer = (Invoke-Target @('shell','getprop','ro.product.manufacturer')).Trim()
+        $hardware = (Invoke-Target @('shell','getprop','ro.hardware')).Trim()
+        if ($manufacturer -ne 'Microsoft Corporation' -or $hardware -cnotlike 'windows_*') {
+            throw 'The selected ADB target does not identify as a Microsoft WSA guest.'
+        }
+        $profile = 'wsa-experimental'
+    }
     $session = [guid]::NewGuid().ToString('N')
     $installed = Invoke-Target @('install','-r',$apk)
     if ($installed -notmatch '(?m)^Success\s*$') { throw 'Standalone probe install did not report success.' }
     $installedPath = Invoke-Target @('shell','pm','path',$package)
     if ($installedPath -notmatch '(?m)^package:') { throw 'Standalone package is missing after install.' }
     $launch = Invoke-Target @('shell','am','start','-W','-S','-n',"$package/$activity",
-        '--es','provenance',$Provenance,'--es','session',$session)
+        '--es','provenance',$Provenance,'--es','session',$session,'--es','inputProfile',$profile)
     if ($launch -notmatch '(?m)^Status:\s+ok\s*$') { throw "Probe launch did not report success. $launch" }
     $null = New-Item -ItemType Directory -Path $RunDirectory
     Save-Json $statePath ([ordered]@{
         schemaVersion = 1
         session = $session
         provenance = $Provenance
+        inputProfile = $profile
         windowMode = $WindowMode
         windowsVersion = [Environment]::OSVersion.Version.ToString()
         wsaVersion = $wsaVersion
@@ -105,8 +120,11 @@ $state = Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json
 $json = Invoke-Target @('exec-out','run-as',$package,'cat','files/pointer-trace.json')
 if ([string]::IsNullOrWhiteSpace($json)) { throw 'No probe export. Use F8 to stop and wait for Export ready.' }
 $trace = $json | ConvertFrom-Json
+$hasProfile = $null -ne $state.PSObject.Properties['inputProfile']
+$traceProfile = $trace.PSObject.Properties['inputProfile']
 if ($trace.schemaVersion -ne 1 -or $trace.session -cne $state.session -or
     $trace.provenance -cne $state.provenance -or $trace.sourceCommit -cne $state.build.sourceCommit -or
+    ($hasProfile -and ($null -eq $traceProfile -or $traceProfile.Value -cne $state.inputProfile)) -or
     $trace.capacity -ne 4096 -or $trace.events.Count -lt 2 -or $trace.events.Count -gt $trace.capacity -or
     $trace.events[-1].kind -cne 'end') {
     throw 'Trace is invalid or belongs to a different Prepare session. Capture and export on the intended target.'

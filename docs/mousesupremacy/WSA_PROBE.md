@@ -1,6 +1,6 @@
 # Windows Subsystem for Android pointer verification
 
-**Status:** Phase 1A probe implemented and packaged. [Build and verification evidence](PROJECT_STATUS.md#phase-1a-probe-evidence) includes the exact source commit and APK identity. Physical WSA forwarding and the stock Android mouse control remain outstanding.
+**Status** · The Phase 1B traces establish raw WSA delivery for hover, all three buttons and drag. The experimental interpretation has passed replay. [Phase 1B.2 evidence](PROJECT_STATUS.md#phase-1b2-wsa-compatibility) tracks the remaining live qualification and stock Android control.
 
 This procedure provides evidence for [platform input](specifications/01-platform-input.md), [input ownership](specifications/02-input-ownership.md), [viewport geometry](specifications/04-viewport-geometry.md), [companion integration](specifications/12-companion-feedback.md) and [diagnostics](specifications/13-diagnostics.md). See [development](DEVELOPMENT.md) for APK setup and [testing](TESTING.md) for the other verification layers.
 
@@ -15,6 +15,8 @@ This procedure provides evidence for [platform input](specifications/01-platform
 ## Phase 1A Windows workflow
 
 Use the [probe runbook](../../tools/wsa-pointer-probe/README.md) and the PowerShell runner included in the [verified artifact](PROJECT_STATUS.md#phase-1a-probe-evidence). Select the exact WSA Developer Mode endpoint, then use Prepare, perform the marked physical sequence and use Collect. Repeat in a fresh maximized run. The probe has package `com.pokedaisy.mousesupremacy.probe` and stores only its own opt-in diagnostic export. No game storage gate applies.
+
+For the corrected build, use the [short Phase 1B.2 follow-up](../../tools/wsa-pointer-probe/README.md#phase-1b2-verification) with the explicit WSA profile. Essentials are pre-click hover, alignment, primary and secondary clicks, drag, cancellation, focus and settled resize. Middle and additional buttons are desirable. Native vertical and horizontal wheel events remain optional on WSA. A translated swipe can resemble ordinary touch, so retain its raw events without assigning a wheel origin. Microsoft documents wheel-to-swipe translation and game-oriented shims. The published options provide no verified native-mouse opt-out for this probe. [Wheel translation](https://blogs.windows.com/windowsdeveloper/2022/07/14/windows-subsystem-for-android/) · [Compatibility shims](https://blogs.windows.com/windows-insider/2022/08/02/update-to-windows-subsystem-for-android-on-windows-11-august-2022/) · [Microsoft WSA input-source discussion](https://github.com/microsoft/WSA/issues/256)
 
 ## Approved experiment and implementation scope
 
