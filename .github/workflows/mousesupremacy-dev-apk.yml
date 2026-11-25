@@ -57,7 +57,14 @@ jobs:
           test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_SHA"
           mkdir -p app/src/dev/assets
           printf '%s\n' "$EXPECTED_SOURCE_SHA" > app/src/dev/assets/source-commit.txt
-          ./gradlew :app:testDevUnitTest --tests '*ControllerTriggersTest' :app:assembleDev \
+          classes="$(mktemp -d)"
+          trap 'rm -rf "$classes"' EXIT
+          javac --release 17 -d "$classes" \
+            pointer-input/src/main/java/com/pokedaisy/mousesupremacy/pointer/*.java \
+            app/src/main/java/com/pokedaisy/app/mouse/FireRedBattleMouse.java \
+            tools/mousesupremacy/FireRedMouseHarness.java
+          java -cp "$classes" com.pokedaisy.app.mouse.FireRedMouseHarness
+          ./gradlew :app:testDevUnitTest --tests '*ControllerTriggersTest' --tests '*FireRedMouseReaderTest' :app:assembleDev \
             -Pquick -Ppokedaisy.x86_64=true --stacktrace
 
       - name: Verify package, native libraries and debug signature

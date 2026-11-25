@@ -33,6 +33,8 @@ class GameSession(
     fun requestField(inBattle: Boolean, delayFrames: Int = 0, run: (GameCalls, Boolean) -> Unit) =
         synchronized(lock) { if (open) fields.addLast(FieldJob(inBattle, delayFrames, run)) }
 
+    fun hasQueuedFieldWork(): Boolean = synchronized(lock) { fields.isNotEmpty() }
+
     /** Snapshot the batch: work posted by a callback waits until the next service pass. */
     fun servicePosted() {
         val count = synchronized(lock) { posted.size }

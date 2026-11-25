@@ -7,6 +7,7 @@ import android.util.Log
 import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.ViewConfiguration
+import com.pokedaisy.app.mouse.FireRedBattleMouse
 import com.pokedaisy.mousesupremacy.pointer.DeviceAliases
 import com.pokedaisy.mousesupremacy.pointer.DirectTouch
 import com.pokedaisy.mousesupremacy.pointer.PointerLayout
@@ -21,7 +22,12 @@ import java.util.concurrent.atomic.AtomicLong
 internal class MousePointerTrace private constructor(
     private val profile: Profile,
     private val slop: Float,
+    enableBattle: Boolean,
 ) {
+    private val battleRows = java.util.concurrent.atomic.AtomicInteger(1500)
+    internal val battleMouse = if (enableBattle) FireRedBattleMouse { row ->
+        if (battleRows.getAndDecrement() > 0) Log.i("MsFireRed", row)
+    } else null
     private enum class Profile(val marker: String) {
         ANDROID("ms_pointer_android"), WSA("ms_pointer_wsa"), DIRECT("ms_pointer_touch"),
     }
@@ -42,11 +48,14 @@ internal class MousePointerTrace private constructor(
     private var row = 0L
     private var dispatchRow = 0L
     private var insideActivity = false
+    private var battleRelease: (() -> Unit)? = null
     private var lastViewOnlyMove = -100L
 
-    init { note("start schema=1 profile=$profile mode=observe-only") }
+    init { note("start schema=1 profile=$profile mode=${if (enableBattle) "firered-reference" else "observe-only"}") }
 
     fun invalidate(reason: String, through: Long = SystemClock.uptimeMillis()) {
+        if (reason == "upstream-key" || reason == "upstream-controller") battleMouse?.invalidate(reason)
+        else battleMouse?.interrupt(reason)
         input.fenceOpenings(through)
         for (slot in 1..SLOTS) {
             val device = devices.at(slot) ?: continue
@@ -59,7 +68,8 @@ internal class MousePointerTrace private constructor(
     }
 
     fun padCallback(action: Int, time: Long) {
-        if (action == MotionEvent.ACTION_MOVE || SystemClock.uptimeMillis() > deadline) return
+        if (action == MotionEvent.ACTION_MOVE || !active()) return
+        battleMouse?.interrupt("native-pad-contact")
         padEpoch.incrementAndGet()
         main.post {
             note("view channel=native-pad action=$action time=$time")
@@ -78,7 +88,7 @@ internal class MousePointerTrace private constructor(
         if (active()) updateLayout(scene())
     }
 
-    private fun active() = remaining > 0 && SystemClock.uptimeMillis() <= deadline
+    private fun active() = battleMouse != null || (remaining > 0 && SystemClock.uptimeMillis() <= deadline)
 
     fun controllerMotion(event: MotionEvent, triggers: ControllerTriggers) {
         if (active() && triggers.hasManualInput(GbaInput.motionBits(event))) invalidate("upstream-controller")
@@ -100,15 +110,22 @@ internal class MousePointerTrace private constructor(
         checkPadEpoch()
         val previous = dispatchRow
         val wasInsideActivity = insideActivity
+        val previousRelease = battleRelease
+        battleRelease = null
         dispatchRow = observe(event, channel, focused, scene())
         insideActivity = true
         try {
             val handled = upstream()
+            battleRelease?.let { release ->
+                updateLayout(scene())
+                release()
+            }
             if (dispatchRow != 0L) note("dispatch raw=$dispatchRow handled=$handled")
             return handled
         } finally {
             dispatchRow = previous
             insideActivity = wasInsideActivity
+            battleRelease = previousRelease
         }
     }
 
@@ -176,6 +193,7 @@ internal class MousePointerTrace private constructor(
         val routed = if (interrupted == null && (edge != null || normalized.interpretation() != null)) {
             route.observe(device.alias(), sample, edge, hit, slop, source == PointerNormalizer.STANDARD)
         } else null
+        routeBattle(sample, source, edge, hit, routed, interrupted, normalized.displaced() != null)
         val ordinaryMove = action == Action.MOVE || action == Action.HOVER_MOVE
         if (ordinaryMove && interrupted == null && routed == null && (edge?.cancelled() ?: 0) == 0
             && SystemClock.uptimeMillis() - lastMove < 100) return 0
@@ -191,6 +209,36 @@ internal class MousePointerTrace private constructor(
             "wheelX=${event.getAxisValue(MotionEvent.AXIS_HSCROLL)} wheelY=${event.getAxisValue(MotionEvent.AXIS_VSCROLL)} " +
             "owner=${if (layout == null) "unavailable" else hit.owner()} pixel=${hit.pixel()} route=${routed ?: interrupted} mouseGameplayKeys=0")
         return raw
+    }
+
+    private fun routeBattle(
+        sample: PointerState.Sample, source: String, edge: PointerState.Result?, hit: PointerLayout.Hit,
+        routed: PointerRoute.Outcome?, interrupted: PointerRoute.Outcome?, displaced: Boolean,
+    ) {
+        val mouse = battleMouse ?: return
+        if ("hover-exit-inside" == edge?.phase()) return
+        val supported = source == PointerNormalizer.STANDARD || source == PointerNormalizer.WSA
+        val disposition = routed?.disposition()
+        val pixel = hit.pixel()
+        if (!sample.focused() || interrupted != null || displaced || (edge?.cancelled() ?: 0) != 0 ||
+            disposition != null && disposition != "observed-press" && disposition != "observed-release" ||
+            pixel == null && (supported || sample.isOpening()) ||
+            !supported && sample.isOpening() || sample.action() == Action.SCROLL ||
+            sample.action() == Action.HOVER_EXIT && supported) {
+            mouse.invalidate("pointer-owner-or-exit")
+            return
+        }
+        if (!supported || edge == null || pixel == null) return
+        val transform = layout?.transform() ?: return
+        val x = pixel.x().toFloat()
+        val y = pixel.y().toFloat()
+        val now = System.nanoTime()
+        when (disposition) {
+            "observed-press" -> mouse.down(routed!!.gesture(), edge.pressed(), x, y, transform, now)
+            "observed-release" -> battleRelease = { mouse.up(routed!!.gesture(), x, y, transform, now) }
+            else -> if (sample.action() == Action.MOVE || sample.action() == Action.HOVER_MOVE ||
+                sample.action() == Action.HOVER_ENTER) mouse.pointer(x, y, transform, now)
+        }
     }
 
     private fun conventionalCancellation(
@@ -219,6 +267,8 @@ internal class MousePointerTrace private constructor(
         if (layout == scene?.layout) return
         layout = scene?.layout
         layoutEpoch++
+        val usable = scene?.layout?.takeIf { it.gameQuad() != null && !it.modal() && !it.hud() }
+        battleMouse?.layout(layoutEpoch, usable?.transform() ?: -1)
         // Cancel an old contact even if the layout later returns to the same bounds.
         invalidate("layout-change")
         note("layout epoch=$layoutEpoch frame=${scene?.drawnFrame} geometry=$layout")
@@ -245,7 +295,8 @@ internal class MousePointerTrace private constructor(
         fun create(activity: PokeDaisyActivity): MousePointerTrace? {
             if (!BuildConfig.DEBUG || BuildConfig.APPLICATION_ID != "com.pokedaisy.app.dev") return null
             val profile = Profile.entries.singleOrNull { File(activity.filesDir, it.marker).isFile } ?: return null
-            return MousePointerTrace(profile, ViewConfiguration.get(activity).scaledTouchSlop.toFloat())
+            val enableBattle = profile != Profile.DIRECT && File(activity.filesDir, "ms_firered_battle").isFile
+            return MousePointerTrace(profile, ViewConfiguration.get(activity).scaledTouchSlop.toFloat(), enableBattle)
         }
     }
 }

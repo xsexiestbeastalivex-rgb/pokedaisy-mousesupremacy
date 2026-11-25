@@ -33,8 +33,25 @@ class GbaInput : Hotkeys.GameKeys, ScriptInput {
      * it's switched off. Kept apart from the steady bits ([recompute]) and pulsed by the engine ([turboMask]).
      */
     @Volatile var turboLatch = 0
-        set(v) { field = v; recompute() }
+        set(v) = synchronized(lock) { if (field != v) mouseInputSerial++; field = v; recompute() }
     @Volatile private var latchedHeld = 0
+    private var mouseInputSerial = 0L
+
+    data class MouseInput(val serial: Long, val reserved: Boolean, val manual: Boolean)
+
+    private fun mouseInputLocked() = MouseInput(mouseInputSerial,
+        heldKeys.isNotEmpty() || turboKeys.isNotEmpty() || hatBits != 0 || touchBits != 0 ||
+            touchTurboBits != 0 || scriptExclusive || scriptBits != 0 || pressBits != 0 || tapFrames != 0,
+        (buttonBits or hatBits or touchBits) != 0 && !scriptExclusive && scriptBits == 0 &&
+            pressBits == 0 && tapFrames == 0 && turboMask == 0)
+
+    fun <T> sampleMouseInput(read: (MouseInput) -> T): T = synchronized(lock) { read(mouseInputLocked()) }
+
+    fun withMouseInput(sample: MouseInput, commit: (Boolean, Boolean) -> Unit) = synchronized(lock) {
+        val now = mouseInputLocked()
+        val unchanged = now.serial == sample.serial
+        commit(unchanged && !sample.reserved && !now.reserved, unchanged && sample.manual && now.manual)
+    }
 
     @Volatile
     private var gbaControls: Map<Int, Int> = DEFAULT_CONTROLS
@@ -53,18 +70,19 @@ class GbaInput : Hotkeys.GameKeys, ScriptInput {
     private val controls get() = if (ds) dsControls else gbaControls
 
     /** @return true if the event was consumed. */
-    override fun onKey(keyCode: Int, down: Boolean): Boolean {
-        val bit = keyToBit(keyCode) ?: return false
+    override fun onKey(keyCode: Int, down: Boolean): Boolean = synchronized(lock) {
+        val bit = keyToBit(keyCode) ?: return@synchronized false
+        mouseInputSerial++
         if (bit and GbaControls.TURBO != 0) {
             if (down) turboKeys[keyCode] = bit and (GbaControls.TURBO or GbaControls.COMPANION).inv() else turboKeys.remove(keyCode)
             turboBits = turboKeys.values.fold(0) { acc, b -> acc or b }
-            return true
+            return@synchronized true
         }
         // A TO COMPANION key with no button of its own is still the player's: it's taken, the game gets nothing.
         if (down) heldKeys[keyCode] = bit and GbaControls.COMPANION.inv() else heldKeys.remove(keyCode)
         buttonBits = heldKeys.values.fold(0) { acc, b -> acc or b }
         recompute()
-        return true
+        true
     }
 
     /** The GBA button [keyCode] is bound to (D-pad, or the player's GAME BUTTONS; a TURBO key counts as its button),
@@ -75,30 +93,34 @@ class GbaInput : Hotkeys.GameKeys, ScriptInput {
     fun isCompanion(keyCode: Int): Boolean = !ds && (gbaControls[keyCode] ?: 0) and GbaControls.COMPANION != 0
 
     /** The player holds a game button (a key, the stick / D-pad or the touch controls). */
-    override val holdsButtons: Boolean get() = heldKeys.isNotEmpty() || turboKeys.isNotEmpty() || hatBits != 0 || touchBits != 0
+    override val holdsButtons: Boolean get() = synchronized(lock) {
+        heldKeys.isNotEmpty() || turboKeys.isNotEmpty() || hatBits != 0 || touchBits != 0
+    }
 
     /** A press that was held back from the game (SELECT / START of a hotkey chord, [Hotkeys.gameKey]) and let go:
      * pressed for [TAP_FRAMES] game frames from now ([tapMask]). */
     @Volatile private var tapBits = 0
     @Volatile private var tapFrames = 0
 
-    override fun tap(keyCode: Int) {
-        tapBits = buttonFor(keyCode) ?: return
+    override fun tap(keyCode: Int) = synchronized(lock) {
+        tapBits = buttonFor(keyCode) ?: return@synchronized
+        mouseInputSerial++
         tapFrames = TAP_FRAMES
     }
 
     /** [tap]'s button for this frame, counting it down; the engine calls it once per game frame. None while a script
      * steers, like [turboMask]. */
-    fun tapMask(): Int {
-        if (tapFrames <= 0) return 0
+    fun tapMask(): Int = synchronized(lock) {
+        if (tapFrames <= 0) return@synchronized 0
         val bits = tapBits
         if (--tapFrames == 0) tapBits = 0
-        return if (scriptExclusive) 0 else bits
+        if (scriptExclusive) 0 else bits
     }
 
     /** Lets go of every key the player holds (not a script's): the companion's window took the buttons, or a rebind
      *  the keys' releases. */
-    fun releaseAll() {
+    fun releaseAll() = synchronized(lock) {
+        mouseInputSerial++
         tapFrames = 0
         tapBits = 0
         heldKeys.clear()
@@ -118,7 +140,8 @@ class GbaInput : Hotkeys.GameKeys, ScriptInput {
     @Volatile private var touchTurboBits = 0
 
     /** The touch controls' GBA buttons held ([bits]) and their TURBO A / B ([turbo], pulsed like [turboMask]). */
-    fun setTouchBits(bits: Int, turbo: Int = 0) {
+    fun setTouchBits(bits: Int, turbo: Int = 0) = synchronized(lock) {
+        if (touchBits != bits || touchTurboBits != turbo) mouseInputSerial++
         touchBits = bits
         touchTurboBits = turbo
         recompute()
@@ -130,7 +153,8 @@ class GbaInput : Hotkeys.GameKeys, ScriptInput {
      * buttons, D-pad, touch controls - are ignored, so they can't knock the
      * sequence off course; they count again the moment it ends.
      */
-    override fun setScript(bits: Int, exclusive: Boolean) {
+    override fun setScript(bits: Int, exclusive: Boolean) = synchronized(lock) {
+        if (scriptBits != bits || scriptExclusive != exclusive) mouseInputSerial++
         scriptBits = bits
         scriptExclusive = exclusive
         recompute()
@@ -140,13 +164,15 @@ class GbaInput : Hotkeys.GameKeys, ScriptInput {
      * apart from [setScript]'s channel, which the battle controls send every frame (they'd wipe it). */
     @Volatile private var pressBits = 0
 
-    fun setPress(bits: Int) {
+    fun setPress(bits: Int) = synchronized(lock) {
+        if (pressBits != bits) mouseInputSerial++
         pressBits = bits
         recompute()
     }
 
     /** Fixed D-pad / analog directions, supplied by the platform's event adapter. */
-    fun setAxes(bits: Int) {
+    fun setAxes(bits: Int) = synchronized(lock) {
+        if (hatBits != bits) mouseInputSerial++
         hatBits = bits
         recompute()
     }

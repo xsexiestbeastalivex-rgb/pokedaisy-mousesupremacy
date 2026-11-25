@@ -2497,6 +2497,7 @@ class PokeDaisyActivity : Activity() {
         view = EmulatorView(this)
         mousePointerTrace?.let { trace ->
             view.observePointerPicture = true
+            view.battleMouse = trace.battleMouse
             view.onPointerCallback = trace::view
         }
         // Focusable, so a DS battle's menu can give it the focus ([dsBattleTakes]: no D-pad press lost to touch mode).
@@ -2845,6 +2846,7 @@ class PokeDaisyActivity : Activity() {
             caller = { fn, a0, a1, a2, a3 -> if (MgbaCore.pkCallSafe()) MgbaCore.pkCall(fn, a0, a1, a2, a3) else BattleInputController.CALL_NOT_NOW },
             retryUnshownBattle = true)
         engine = EmulatorEngine(input, states!!, ffMusicCache, battleSession, Prefs(this), telemetry).apply {
+            battleMouse = mousePointerTrace?.battleMouse
             hudEngine.value = this
             lateFramesSource = { view.lateFrames }
             // The game screen's fastest mode, which no tick that waits for the refresh can outrun (VsyncCheck, GitHub #350).
@@ -2885,7 +2887,7 @@ class PokeDaisyActivity : Activity() {
             }
             // The screen shows finished frames only (a copy), never the one being drawn.
             onFrame = {
-                view.publishFrame()
+                view.publishFrame(battleMouseSample)
                 if (romIsNds) NdsBottomFrame.publish()
             }
             onStateResult = { action, slot, ok ->
