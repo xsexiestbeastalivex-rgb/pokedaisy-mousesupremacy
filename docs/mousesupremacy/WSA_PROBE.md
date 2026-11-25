@@ -1,6 +1,6 @@
 # Windows Subsystem for Android pointer verification
 
-**Status** · Headquarters retained the existing WSA host as priority. The replacement APK passed the Phase 1B.5 short physical regression. Stock Android controls and actual PokeDaisy routing stay separate. [Historical physical grades](PROJECT_STATUS.md#phase-1b2-wsa-compatibility) · [Replacement-build physical evidence](PROJECT_STATUS.md#phase-1b5-corrected-probe-physical-regression)
+**Status** · Headquarters retained the existing WSA host as priority. The Phase 1B.5 APK passed its short physical regression. Phase 1B.7 has automated and package evidence for router-wide ordering. Stock Android controls and actual PokeDaisy routing stay separate. [Historical physical grades](PROJECT_STATUS.md#phase-1b2-wsa-compatibility) · [Phase 1B.5 physical evidence](PROJECT_STATUS.md#phase-1b5-corrected-probe-physical-regression) · [Phase 1B.7 correction evidence](PROJECT_STATUS.md#phase-1b7-router-wide-generation-ordering)
 
 This procedure provides evidence for [platform input](specifications/01-platform-input.md), [input ownership](specifications/02-input-ownership.md), [viewport geometry](specifications/04-viewport-geometry.md), [companion integration](specifications/12-companion-feedback.md) and [diagnostics](specifications/13-diagnostics.md). See [development](DEVELOPMENT.md) for APK setup and [testing](TESTING.md) for the other verification layers.
 
