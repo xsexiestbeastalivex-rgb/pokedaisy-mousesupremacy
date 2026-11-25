@@ -95,6 +95,10 @@ jobs:
             grep -F 'certificate SHA-256 digest:' dist/build-info.txt
             cat dist/SHA256SUMS
           } >> "$GITHUB_STEP_SUMMARY"
+          apk_sha="$(awk '{print $1}' dist/SHA256SUMS)"
+          cert_sha="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' dist/build-info.txt)"
+          printf '::notice title=Verified development APK::Source %s | Package %s | ABIs %s | APK SHA-256 %s | Signer SHA-256 %s\n' \
+            "$(git rev-parse HEAD)" "$package_id" "$abis" "$apk_sha" "$cert_sha"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

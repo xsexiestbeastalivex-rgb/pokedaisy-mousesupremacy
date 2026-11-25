@@ -153,22 +153,24 @@ internal class MousePointerTrace private constructor(
         val sample = PointerState.Sample(action, region, x, y, event.downTime, event.eventTime,
             event.getPointerId(0), event.pointerCount, event.actionButton, event.buttonState, focused, event.historySize > 0)
         val device = devices.get(event.deviceId, { "android" }, input::attach)
-        val cancellation = if (action == Action.CANCEL) conventionalCancellation(device, sample, event.source, tool) else null
-        // A stale or known unrelated CANCEL on the same device ID must not retire its mouse normalizer.
-        val slot = if (action == Action.CANCEL && route.ownsConventional(device.alias())) 0 else device.slot()
-        val normalized = input.observe(sample, slot, event.source, tool, profile == Profile.WSA, slop)
-        val touch = if (profile == Profile.DIRECT) direct.observe(device.alias(), sample, finger, pointer && !finger, slop) else null
+        val receiptTime = SystemClock.uptimeMillis()
+        val cancellation = if (action == Action.CANCEL) {
+            conventionalCancellation(device, sample, event.source, tool, receiptTime)
+        } else null
+        val normalized = route.normalize(
+            input, sample, device.slot(), device.alias(), event.source, tool, profile == Profile.WSA, slop, receiptTime,
+        )
+        val touch = if (profile == Profile.DIRECT && !PointerRoute.isFutureCancellation(sample, receiptTime)) {
+            direct.observe(device.alias(), sample, finger, pointer && !finger, slop)
+        } else null
         val routeTouch = touch?.takeUnless { it.cancelled() != 0 && route.conventionalHeld() }
         val edge = normalized.result() ?: routeTouch
         val source = normalized.interpretation() ?: if (routeTouch != null) "direct-touch" else "upstream"
-        if (source == PointerNormalizer.STANDARD && input.hasDirectContact() && hit.owner() == PointerLayout.Owner.GAME) {
-            hit = PointerLayout.Hit(PointerLayout.Owner.UNOWNED, null)
-        }
+        if (source == PointerNormalizer.STANDARD) hit = route.withConventionalOccupancy(input, hit)
         val interrupted = cancellation ?: when {
             normalized.displaced() != null && !route.conventionalHeld() -> route.cancel(normalized.displaced().phase())
             routeTouch != null && routeTouch.cancelled() != 0 -> route.cancel(routeTouch.phase())
-            route.held() && source == "upstream" && pointer && action == Action.DOWN &&
-                sample.hasContactTime() -> route.cancelCompetingContact(event.downTime)
+            route.conventionalHeld() && input.isDirectOpening(device.slot(), sample) -> route.cancelCompetingContact(sample.downTime())
             else -> null
         }
         val routed = if (interrupted == null && (edge != null || normalized.interpretation() != null)) {
@@ -192,7 +194,7 @@ internal class MousePointerTrace private constructor(
     }
 
     private fun conventionalCancellation(
-        device: DeviceAliases.Device, sample: PointerState.Sample, source: Int, tool: Int,
+        device: DeviceAliases.Device, sample: PointerState.Sample, source: Int, tool: Int, receiptTime: Long,
     ): PointerRoute.Outcome? {
         val origin = when {
             source and InputDevice.SOURCE_MOUSE == InputDevice.SOURCE_MOUSE && tool == MotionEvent.TOOL_TYPE_MOUSE ->
@@ -201,12 +203,12 @@ internal class MousePointerTrace private constructor(
                 PointerRoute.CancelOrigin.UNIDENTIFIED
             else -> PointerRoute.CancelOrigin.OTHER
         }
-        val alias = route.conventionalCancelOwner(device.alias(), sample, origin, SystemClock.uptimeMillis())
+        val alias = route.conventionalCancelOwner(device.alias(), sample, origin, receiptTime)
         if (alias == 0L) return null
         val reason = if (origin == PointerRoute.CancelOrigin.UNIDENTIFIED) "unidentified-cancel" else "android-cancel"
         for (slot in 1..SLOTS) {
             if (devices.at(slot)?.alias() == alias) {
-                cancellation(alias, input.invalidate(slot, sample.eventTime(), reason, false))
+                cancellation(alias, input.invalidateConventional(slot, sample.eventTime(), reason))
                 break
             }
         }

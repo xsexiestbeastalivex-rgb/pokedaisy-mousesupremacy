@@ -23,6 +23,7 @@ public final class ApplicationPointerTest {
         ownership();
         ordinaryTouch();
         conventionalCancellation();
+        contactLifecycle();
         staleDirectCancellation();
         translatedTransitions();
         System.out.println("Application pointer tests passed: 2 layout widths, 4 ownership boundary classes, "
@@ -147,6 +148,109 @@ public final class ApplicationPointerTest {
         }
     }
 
+    private static void contactLifecycle() {
+        int histories = 0;
+        for (int profile = 0; profile < 3; profile++) {
+            for (int slot : new int[]{1, 2}) {
+                for (Action terminal : new Action[]{UP, CANCEL}) {
+                    for (int order = 0; order < 3; order++) {
+                        for (boolean held : new boolean[]{false, true}) {
+                            var bridge = new Harness(layout(630, false, false, true), profile);
+                            var down = sample(DOWN, 100, 100, 590, 590, 0, 0);
+                            var end = sample(terminal, 100, 100, 590, 605, 0, 0);
+                            var owner = held ? bridge.mouse(sample(DOWN, 100, 100, 600, 600, 1, 0)) : null;
+                            if (order == 0) bridge.deliver(slot, FINGER, 1, end, profile, 605);
+                            bridge.deliver(slot, FINGER, 1, down, profile, 605);
+                            expect(order != 0, bridge.input.hasDirectContact());
+                            if (held) expect(true, bridge.route.conventionalHeld());
+                            if (order == 1) {
+                                bridge.deliver(slot, FINGER, 1, end, profile, 605);
+                                expect(false, bridge.input.hasDirectContact());
+                            }
+                            if (held) {
+                                var released = bridge.mouse(sample(UP, 100, 100, 600, 610, 0, 0));
+                                expect(owner.gesture(), released.gesture());
+                                expect("observed-release", released.disposition());
+                            }
+                            if (order == 2) {
+                                expect(true, bridge.input.hasDirectContact());
+                                var blocked = bridge.mouse(sample(DOWN, 100, 100, 620, 620, 1, 0));
+                                expect(false, blocked != null && blocked.disposition().equals("observed-press"));
+                                expect(false, bridge.route.conventionalHeld());
+                                expect(null, bridge.mouse(sample(UP, 100, 100, 620, 621, 0, 0)));
+                                bridge.deliver(slot, FINGER, 1, end, profile, 621);
+                            }
+                            expect(false, bridge.input.hasDirectContact());
+                            expect(null, bridge.deliver(slot, FINGER, 1, end, profile, 622));
+                            expect(null, bridge.deliver(slot, FINGER, 1, down, profile, 622));
+                            expect(false, bridge.input.hasDirectContact());
+                            var fresh = bridge.mouse(sample(DOWN, 100, 100, 630, 630, 1, 0));
+                            expect(GAME, fresh.owner());
+                            expect(fresh.gesture(), bridge.mouse(sample(UP, 100, 100, 630, 635, 0, 0)).gesture());
+                            histories++;
+                        }
+                    }
+
+                    for (long generation : new long[]{600, 602}) {
+                        var bridge = new Harness(layout(630, false, false, true), profile);
+                        var owner = bridge.mouse(sample(DOWN, 100, 100, 600, 600, 1, 0));
+                        var takeOver = bridge.deliver(slot, FINGER, 1,
+                                sample(DOWN, 100, 100, generation, generation, 0, 0), profile, 605);
+                        expect("upstream-touch", takeOver.disposition());
+                        expect(owner.gesture(), takeOver.gesture());
+                        expect(true, bridge.input.hasDirectContact());
+                        expect(false, bridge.route.held());
+                        bridge.deliver(slot, FINGER, 1, sample(terminal, 100, 100, 590, 606, 0, 0), profile, 606);
+                        expect(true, bridge.input.hasDirectContact());
+                        bridge.deliver(slot, FINGER, 1,
+                                sample(terminal, 100, 100, generation, 608, 0, 0), profile, 608);
+                        expect(false, bridge.input.hasDirectContact());
+                        expect(null, bridge.mouse(sample(UP, 100, 100, 600, 610, 0, 0)));
+                        var fresh = bridge.mouse(sample(DOWN, 100, 100, 620, 620, 1, 0));
+                        expect(fresh.gesture(), bridge.mouse(sample(UP, 100, 100, 620, 625, 0, 0)).gesture());
+                        histories++;
+                    }
+                }
+            }
+
+            // A conventional-only fence cannot clear another contact. An ambiguous terminal
+            // with neither identity nor clock evidence from another slot cannot clear it either.
+            var bridge = new Harness(layout(630, false, false, true), profile);
+            bridge.mouse(sample(DOWN, 100, 100, 600, 600, 1, 0));
+            var touch = sample(DOWN, 100, 100, 590, 590, 0, 0);
+            bridge.deliver(1, FINGER, 1, touch, profile, 601);
+            expect("cancelled", bridge.cancel(1, MOUSE, 3, sample(CANCEL, 100, 100, 600, 605, 0, 0), 605).disposition());
+            expect(true, bridge.input.hasDirectContact());
+            bridge.deliver(2, 0, 0, sample(CANCEL, 100, 100, 0, 606, 0, 0), profile, 606);
+            expect(true, bridge.input.hasDirectContact());
+            bridge.input.fenceOpenings(610);
+            bridge.input.invalidate(1, 610, "layout", false);
+            bridge.input.invalidate(2, 610, "layout", false);
+            bridge.direct.invalidate(610, "layout");
+            expect(false, bridge.input.hasDirectContact());
+            expect(null, bridge.deliver(1, FINGER, 1, touch, profile, 611));
+            expect(false, bridge.input.hasDirectContact());
+            var fresh = bridge.mouse(sample(DOWN, 100, 100, 620, 620, 1, 0));
+            expect(fresh.gesture(), bridge.mouse(sample(UP, 100, 100, 620, 625, 0, 0)).gesture());
+            histories++;
+        }
+        var directBridge = new Harness(layout(630, false, false, true), 2);
+        var finger = sample(DOWN, 100, 100, 700, 700, 0, 0);
+        var pressed = directBridge.deliver(1, FINGER, 1, finger, 2, 700);
+        expect("observed-press", pressed.disposition());
+        expect(null, directBridge.deliver(1, FINGER, 1, finger, 2, 701));
+        expect(true, directBridge.route.held());
+        expect(true, directBridge.input.hasDirectContact());
+        expect(null, directBridge.deliver(1, FINGER, 1, sample(CANCEL, 100, 100, 700, 900, 0, 0), 2, 702));
+        expect(true, directBridge.route.held());
+        expect(true, directBridge.input.hasDirectContact());
+        var released = directBridge.deliver(1, FINGER, 1, sample(UP, 100, 100, 700, 705, 0, 0), 2, 705);
+        expect(pressed.gesture(), released.gesture());
+        expect("observed-release", released.disposition());
+        expect(false, directBridge.input.hasDirectContact());
+        System.out.println((histories + 1) + " application contact lifecycle histories passed");
+    }
+
     private static void staleDirectCancellation() {
         var harness = new Harness(layout(630, false, false, true));
         var touch = new DirectTouch();
@@ -219,11 +323,19 @@ public final class ApplicationPointerTest {
     private static final class Harness {
         final PointerNormalizer input = new PointerNormalizer(2);
         final PointerRoute route = new PointerRoute();
+        final DirectTouch direct = new DirectTouch();
         final PointerLayout layout;
-        Harness(PointerLayout layout) { this.layout = layout; input.attach(1); input.attach(2); }
+        final int mouseProfile;
+        Harness(PointerLayout layout) { this(layout, 0); }
+        Harness(PointerLayout layout, int profile) {
+            this.layout = layout;
+            mouseProfile = profile;
+            input.attach(1);
+            input.attach(2);
+        }
 
         PointerRoute.Outcome mouse(Sample s) {
-            return route.observe(1, s, input.observe(s, 1, MOUSE, 3, false, SLOP).result(), layout.hit(s.x(), s.y()), SLOP, true);
+            return deliver(1, MOUSE, 3, s, mouseProfile, s.eventTime());
         }
 
         PointerRoute.Outcome cancel(int slot, int source, int tool, Sample sample, long receipt) {
@@ -231,13 +343,32 @@ public final class ApplicationPointerTest {
                     : source == 0 && tool == 0 ? PointerRoute.CancelOrigin.UNIDENTIFIED : PointerRoute.CancelOrigin.OTHER;
             long owner = route.conventionalCancelOwner(slot, sample, origin, receipt);
             if (owner != 0) {
-                input.invalidate((int)owner, sample.eventTime(), "cancelled", false);
+                input.invalidateConventional((int)owner, sample.eventTime(), "cancelled");
                 return route.cancel("cancelled");
             }
-            int acceptedSlot = route.ownsConventional(slot) ? 0 : slot;
-            var decision = input.observe(sample, acceptedSlot, source, tool, false, SLOP);
-            if (decision.result() == null && decision.interpretation() == null) return null;
-            return route.observe(slot, sample, decision.result(), layout.hit(sample.x(), sample.y()), SLOP, false);
+            return deliver(slot, source, tool, sample, 0, receipt);
+        }
+
+        // Android maps the callback to a Sample and delegates normalization and hit
+        // projection to these same methods. This harness does not dispatch MotionEvents.
+        PointerRoute.Outcome deliver(int slot, int source, int tool, Sample sample, int profile, long receipt) {
+            var normalized = route.normalize(input, sample, slot, slot, source, tool, profile == 1, SLOP, receipt);
+            boolean finger = source == FINGER && tool == 1;
+            var touch = profile == 2 && !PointerRoute.isFutureCancellation(sample, receipt)
+                    ? direct.observe(slot, sample, finger, (source & 2) != 0 && !finger, SLOP) : null;
+            if (touch != null && touch.cancelled() != 0 && route.conventionalHeld()) touch = null;
+            if (normalized.displaced() != null && !route.conventionalHeld()) return route.cancel(normalized.displaced().phase());
+            if (touch != null && touch.cancelled() != 0) return route.cancel(touch.phase());
+            if (route.conventionalHeld() && input.isDirectOpening(slot, sample)) {
+                var takeover = route.cancelCompetingContact(sample.downTime());
+                if (takeover != null) return takeover;
+            }
+            var edge = normalized.result() == null ? touch : normalized.result();
+            if (edge == null && normalized.interpretation() == null) return null;
+            boolean conventional = PointerNormalizer.STANDARD.equals(normalized.interpretation());
+            var hit = layout.hit(sample.x(), sample.y());
+            if (conventional) hit = route.withConventionalOccupancy(input, hit);
+            return route.observe(slot, sample, edge, hit, SLOP, conventional);
         }
 
         PointerRoute.Outcome wsa(Sample s) {

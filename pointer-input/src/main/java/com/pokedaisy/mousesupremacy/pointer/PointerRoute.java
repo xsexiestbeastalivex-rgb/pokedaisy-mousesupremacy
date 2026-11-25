@@ -37,6 +37,28 @@ public final class PointerRoute {
         return 0;
     }
 
+    public static boolean isFutureCancellation(Sample sample, long receiptTime) {
+        return sample.action() == PointerState.Action.CANCEL && sample.eventTime() > receiptTime;
+    }
+
+    /** Keep the callback slot authoritative for contact cleanup, even when its CANCEL cannot own the gesture. */
+    public PointerNormalizer.Decision normalize(PointerNormalizer input, Sample sample, int slot, long alias,
+                                                int source, int tool, boolean wsa, float slop, long receiptTime) {
+        if (isFutureCancellation(sample, receiptTime)) return new PointerNormalizer.Decision(null, null, 0, null);
+        if (sample.action() == PointerState.Action.CANCEL && ownsConventional(alias)) {
+            return input.observeContactTerminal(sample, slot, source, tool);
+        }
+        return input.observe(sample, slot, source, tool, wsa, slop);
+    }
+
+    public Hit withConventionalOccupancy(PointerNormalizer input, Hit hit) {
+        // Older delivered touch can block new admission, but cannot reclassify a newer held gesture.
+        if (hit.owner() == Owner.GAME && input.hasDirectContactSince(conventionalHeld() ? press.contact() : 0)) {
+            return new Hit(Owner.UNOWNED, null);
+        }
+        return hit;
+    }
+
     public Outcome cancelCompetingContact(long downTime) {
         return press != null && downTime >= press.contact() ? cancel("upstream-touch") : null;
     }
