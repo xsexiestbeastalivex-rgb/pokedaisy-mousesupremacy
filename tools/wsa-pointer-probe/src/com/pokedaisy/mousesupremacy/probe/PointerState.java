@@ -25,6 +25,10 @@ final class PointerState {
 
         boolean samePoint(Sample other) { return hit.equals(other.hit) && x == other.x && y == other.y; }
         boolean hasPosition() { return Float.isFinite(x) && Float.isFinite(y); }
+        boolean hasContactTime() { return downTime > 0 && eventTime >= downTime; }
+        boolean isCancellationSignal() {
+            return action == CANCEL || action == POINTER_DOWN || action == POINTER_UP || pointerCount != 1;
+        }
     }
 
     record Result(String phase, String region, boolean regionChanged, boolean firstUnpressedMove,
@@ -42,13 +46,15 @@ final class PointerState {
     private final long[] releasedAt = new long[3];
 
     boolean held() { return held != 0; }
+    boolean holds(long downTime) { return held() && generation == downTime; }
 
     Result observe(Sample sample) {
         if (!sample.focused()) return null;
         var action = sample.action();
-        if (action == CANCEL || sample.pointerCount() != 1 || action == POINTER_DOWN || action == POINTER_UP) {
+        if (sample.isCancellationSignal()) {
             if (held() && sample.downTime() > 0 && sample.downTime() < generation) return null;
-            return invalidate(sample.downTime(), action == CANCEL ? "android-cancel" : "ambiguous-contact");
+            return invalidate(sample.hasContactTime() ? sample.downTime() : -1,
+                    action == CANCEL ? "android-cancel" : "ambiguous-contact");
         }
         if (action == HOVER_EXIT && !OUTSIDE.equals(sample.hit())) {
             return result("hover-exit-inside", false, false, 0, 0, 0);

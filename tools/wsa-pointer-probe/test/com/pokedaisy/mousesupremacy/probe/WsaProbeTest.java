@@ -329,17 +329,18 @@ public final class WsaProbeTest {
         input.attach(2);
         start(input, 200);
         expectIgnored(translated(input, 2, DOWN, 100, 100, 0, 1));
-        // An inconsistent timestamp is inapplicable even when its down time is newer.
+        // An inconsistent future down time cannot establish an ordering boundary.
         expectIgnored(translated(input, 2, MOVE, 250, 190, 0, 1));
-        expectIgnored(translated(input, 2, CANCEL, 250, 260, 0, 0));
         expect(1, finish(input, 200, 220).click());
 
         expectIgnored(translated(input, 2, BUTTON_PRESS, 100, 100, 1, 1));
         expectIgnored(translated(input, 2, DOWN, 100, 100, 0, 1));
-        expectIgnored(translated(input, 2, DOWN, 250, 250, 0, 1));
-        expectIgnored(translated(input, 2, BUTTON_PRESS, 250, 250, 1, 1));
-        expectIgnored(translated(input, 2, UP, 250, 270, 0, 0));
-        expectIgnored(translated(input, 2, BUTTON_RELEASE, 250, 270, 1, 0));
+        expectIgnored(translated(input, 2, UP, 100, 270, 0, 0));
+        expectIgnored(translated(input, 2, BUTTON_RELEASE, 100, 270, 1, 0));
+        expectIgnored(translated(input, 2, DOWN, 240, 240, 0, 1));
+        expect(1, translated(input, 2, BUTTON_PRESS, 240, 240, 1, 1).result().pressed());
+        expect("release-pending", translated(input, 2, UP, 240, 260, 0, 0).result().phase());
+        expect(1, translated(input, 2, BUTTON_RELEASE, 240, 260, 1, 0).result().click());
         System.out.println("PASS rejected contact stays retired across owner completion");
     }
 

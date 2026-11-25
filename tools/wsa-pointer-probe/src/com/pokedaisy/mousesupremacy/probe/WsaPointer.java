@@ -30,6 +30,9 @@ final class WsaPointer {
         return start != null;
     }
 
+    long generation() { return active() ? start.downTime() : -1; }
+    long latestEvent() { return lastEvent; }
+
     boolean applies(Sample sample) {
         return active() && sample.eventTime() >= start.downTime()
                 && (sample.isHover() || sample.downTime() <= 0 || sample.downTime() >= start.downTime());
@@ -178,11 +181,11 @@ final class WsaPointer {
         sawTouchDown = sawButtonPress = dragging = clickEligible = false;
     }
 
-    boolean isRetired(long downTime) {
+    private boolean isRetired(long downTime) {
         return downTime <= closedThrough;
     }
 
-    void retire(long downTime) {
+    private void retire(long downTime) {
         closedThrough = Math.max(closedThrough, downTime);
     }
 

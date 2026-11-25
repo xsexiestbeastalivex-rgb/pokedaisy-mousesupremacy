@@ -18,6 +18,22 @@ Use the [probe runbook](../../tools/wsa-pointer-probe/README.md) and the PowerSh
 
 For the corrected build, use the [short Phase 1B.4 regression](../../tools/wsa-pointer-probe/README.md#phase-1b4-minimal-physical-regression) with the explicit WSA profile. Essentials are pre-click hover, alignment, primary and secondary clicks, drag, cancellation, focus and settled resize. Middle and additional buttons are desirable. Native vertical and horizontal wheel events remain optional on WSA. A translated swipe can resemble ordinary touch, so retain its raw events without assigning a wheel origin. Microsoft documents wheel-to-swipe translation and game-oriented shims. The published options provide no verified native-mouse opt-out for this probe. [Wheel translation](https://blogs.windows.com/windowsdeveloper/2022/07/14/windows-subsystem-for-android/) · [Compatibility shims](https://blogs.windows.com/windows-insider/2022/08/02/update-to-windows-subsystem-for-android-on-windows-11-august-2022/) · [Microsoft WSA input-source discussion](https://github.com/microsoft/WSA/issues/256)
 
+## Translated contact ordering
+
+The probe orders translated contacts on Android's monotonic uptime clock. An alias names a bounded callback slot. It can change or be reused and does not identify physical hardware. Ordering uses an inclusive router-wide cutoff plus the current translated contact and bounded slot state. The cutoff survives completion, cancellation, device removal, slot reuse and capture reset in the same Android uptime session. Focus, layout and capture lifecycle fences also apply.
+
+| State | Eligible transition |
+| --- | --- |
+| Idle | A credible new opening is strictly later than the resolved boundary. A timed terminal or disruption received first retires the generation before a later opening can use it. |
+| Opening | The first valid opening half reserves the translated slot. Only its matching half can emit the press. Cancel incomplete or contradictory pairs. |
+| Held | Only the admitted slot and generation can continue successfully. Ignore stale contacts before interpreting them. Cancel plausible competing input. A newer same-slot opening can abandon a lost contact when its time is strictly beyond the latest event. An opening tied with the latest event cancels the ambiguous interaction. |
+| Release pending | The first terminal clears held state. Only the agreeing second terminal confirms, once. This pending interaction retains the same exclusive translated owner until it completes or is cancelled. |
+| Closed | Advance the cutoff through credible resolution evidence. A delayed opening or terminal cannot reopen the interaction on any alias. A fresh eligible contact may recover. |
+
+Credible translated openings require positive matching down and event times. A continuation requires a positive down time and event time at or after it. An older generation cannot use a late terminal's event time to move the cutoff. Invalid future down times cannot advance it. An applicable ambiguous cancellation can end the owner using the established timeline and any usable event time. A conflicting stream with an equal live down time is ambiguous and cancels. Raw hover uses its own event timing. Conventional mouse and direct touch retain their separate paths, with applicable contact evidence participating in arbitration. A credible matching or newer direct-touch terminal can clear older direct occupancy. There is no elapsed-time expiry for stationary holds.
+
+The policy assumes comparable Android uptime timestamps and authoritative callbacks in one probe session. It deliberately declines uncertain or tied ownership. It makes no inference about undelivered callbacks, physical device identity or production routing. See the [System 01 contract](specifications/01-platform-input.md) and [test guidance](TESTING.md#risk-based-verification).
+
 ## Approved experiment and implementation scope
 
 Build a small, separately identified Android debug probe APK under the fork on a follow-up branch. It needs one Activity, two adjacent labeled regions and an opt-in, bounded observation log. It requires no ROM, emulator core, native ABI libraries, network permission or production app changes. A separate debug package also avoids scheduling the full native emulator build just to test Windows event forwarding. Use an existing Android build toolchain and the upstream minimum SDK for the first run. Pin the probe's source commit and record the APK hash. Remove the probe from the host after testing if the tester no longer needs it.
