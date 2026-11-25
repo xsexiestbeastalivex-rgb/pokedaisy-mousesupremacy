@@ -15,7 +15,6 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.util.AtomicFile;
-import android.util.SparseIntArray;
 import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -37,10 +36,8 @@ import java.util.UUID;
 public final class ProbeActivity extends Activity implements InputManager.InputDeviceListener {
     private static final int MAX_DEVICES = 64;
     private final Trace trace = new Trace(Trace.CAPACITY);
-    private final SparseIntArray deviceAliases = new SparseIntArray();
-    private final PointerState[] devices = new PointerState[MAX_DEVICES + 1];
-    private final WsaPointer[] wsaPointers = new WsaPointer[MAX_DEVICES + 1];
-    private final String[] deviceIdentities = new String[MAX_DEVICES + 1];
+    private final DeviceAliases deviceAliases = new DeviceAliases(MAX_DEVICES);
+    private final ProbeInput input = new ProbeInput(MAX_DEVICES);
     private final Rect aBounds = new Rect();
     private final Rect bBounds = new Rect();
     private final Rect nextA = new Rect();
@@ -55,7 +52,7 @@ public final class ProbeActivity extends Activity implements InputManager.InputD
     private String provenance;
     private String session;
     private boolean wsaCompatibility;
-    private long wsaInvalidatedUptime;
+    private int touchSlop;
     private String active = OUTSIDE;
     private String rawHit = OUTSIDE;
     private String latest = "Waiting for pointer";
@@ -72,7 +69,7 @@ public final class ProbeActivity extends Activity implements InputManager.InputD
     private int densityDpi;
     private int orientation;
     private int windowMode;
-    private int inputAlias;
+    private long inputAlias;
     private int heldButtons;
     private int rawButtons;
     private float screenX = Float.NaN;
@@ -131,17 +128,14 @@ public final class ProbeActivity extends Activity implements InputManager.InputD
                 lifecycle("view-detached");
             }
         });
+        touchSlop = ViewConfiguration.get(this).getScaledTouchSlop();
+        getSystemService(InputManager.class).registerInputDeviceListener(this, null);
         refresh();
     }
 
-    @Override protected void onStart() {
-        super.onStart();
-        getSystemService(InputManager.class).registerInputDeviceListener(this, null);
-    }
-
-    @Override protected void onStop() {
+    @Override protected void onDestroy() {
         getSystemService(InputManager.class).unregisterInputDeviceListener(this);
-        super.onStop();
+        super.onDestroy();
     }
 
     @Override protected void onPause() {
@@ -163,15 +157,27 @@ public final class ProbeActivity extends Activity implements InputManager.InputD
         refresh();
     }
 
-    @Override public void onInputDeviceAdded(int deviceId) {}
-    @Override public void onInputDeviceChanged(int deviceId) {}
+    @Override public void onInputDeviceAdded(int deviceId) {
+        retireDevice(deviceId, "device-added");
+    }
+
+    @Override public void onInputDeviceChanged(int deviceId) {
+        retireDevice(deviceId, "device-changed");
+    }
 
     @Override public void onInputDeviceRemoved(int deviceId) {
-        int alias = deviceAliases.get(deviceId);
-        if (alias == 0) return;
-        cancel(alias, "device-removed");
-        deviceAliases.delete(deviceId);
-        if (alias == inputAlias) {
+        retireDevice(deviceId, "device-removed");
+    }
+
+    private void retireDevice(int deviceId, String reason) {
+        var device = deviceAliases.remove(deviceId);
+        if (device == null) return;
+        long now = SystemClock.uptimeMillis();
+        input.fenceOpenings(now);
+        cancel(device, reason, now);
+        input.detach(device.slot());
+        note("device-invalidated", fields("device", device.alias(), "reason", reason));
+        if (device.alias() == inputAlias) {
             resetDisplay();
             refresh();
         }
@@ -210,7 +216,7 @@ public final class ProbeActivity extends Activity implements InputManager.InputD
         Map<String, Object> observation = fields("key", key,
                 "keyCode", "other".equals(key) ? null : code, "action", event.getAction(),
                 "repeatCount", event.getRepeatCount(), "eventUptimeMs", event.getEventTime(),
-                "source", event.getSource(), "device", alias(event.getDeviceId()));
+                "source", event.getSource(), "device", device(event.getDeviceId()).alias());
         note("activity.key", observation);
         if (control) {
             handled(observation, true);
@@ -231,16 +237,17 @@ public final class ProbeActivity extends Activity implements InputManager.InputD
     }
 
     private Map<String, Object> motion(MotionEvent event, String point, String receiver) {
-        layout("dispatch");
+        long eventTime = event.getEventTime();
+        // A press that first discovers the new layout can belong to it. The old active
+        // generation is still retired by cancelAll, including duplicates with this timestamp.
+        layout("dispatch", eventTime - 1);
         long receipt = SystemClock.uptimeMillis();
         long receiptNanos = SystemClock.elapsedRealtimeNanos();
-        int alias = alias(event.getDeviceId());
+        var device = device(event.getDeviceId());
         int action = event.getActionMasked();
         int tool = event.getToolType(0);
         int source = event.getSource();
         int buttons = event.getButtonState();
-        boolean mouse = tool == MotionEvent.TOOL_TYPE_MOUSE
-                && event.isFromSource(InputDevice.SOURCE_MOUSE);
         float x = event.getRawX();
         float y = event.getRawY();
         String hit = contains(aBounds, x, y) ? "A" : contains(bBounds, x, y) ? "B" : OUTSIDE;
@@ -251,18 +258,17 @@ public final class ProbeActivity extends Activity implements InputManager.InputD
         PointerState.Result result = null;
         String interpretation = null;
         if (authority) {
-            if (WsaPointer.accepts(wsaCompatibility, source, tool, alias)) {
-                long downTime = event.getDownTime();
-                boolean start = kind == PointerState.Action.DOWN || kind == PointerState.Action.BUTTON_PRESS;
-                if (!start || downTime > wsaInvalidatedUptime || event.getPointerCount() != 1) {
-                    result = wsaPointers[alias].observe(new WsaPointer.Sample(kind, hit, x, y,
-                            downTime, event.getEventTime(), event.getPointerId(0), event.getPointerCount(),
-                            event.getActionButton(), buttons, focused, event.getHistorySize() != 0));
-                }
-                interpretation = "wsa-experimental";
-            } else if (alias != 0 && (mouse || kind == PointerState.Action.CANCEL)) {
-                result = devices[alias].observe(kind, hit, event.getActionButton(), buttons, focused);
-                interpretation = "android-mouse";
+            var sample = new PointerState.Sample(kind, hit, x, y, event.getDownTime(),
+                    eventTime, event.getPointerId(0), event.getPointerCount(), event.getActionButton(),
+                    buttons, focused, event.getHistorySize() != 0);
+            var decision = input.observe(sample, device.slot(), source, tool, wsaCompatibility, touchSlop);
+            result = decision.result();
+            interpretation = decision.interpretation();
+            if (decision.displaced() != null) {
+                recordCancellation(deviceAliases.at(decision.displacedSlot()), decision.displaced(), ProbeInput.WSA);
+                active = OUTSIDE;
+                heldButtons = 0;
+                scheduleRefresh();
             }
             if (focused && event.isFromSource(InputDevice.SOURCE_CLASS_POINTER)
                     && kind != PointerState.Action.OTHER) {
@@ -274,7 +280,7 @@ public final class ProbeActivity extends Activity implements InputManager.InputD
                     screenY = y;
                     rawHit = hit;
                 }
-                inputAlias = alias;
+                inputAlias = device.alias();
                 rawButtons = buttons;
                 if (kind == PointerState.Action.SCROLL) scroll = String.format(Locale.ROOT, "%.2f / %.2f", h, v);
                 latest = kind + " source=0x" + Integer.toHexString(source) + " tool=" + tool;
@@ -288,10 +294,10 @@ public final class ProbeActivity extends Activity implements InputManager.InputD
         }
 
         if (!trace.recording()) return null;
-        Map<String, Object> raw = fields("kind", point, "receiptUptimeMs", receipt,
+        Map<String, Object> raw = fields("kind", point, "authoritative", authority, "receiptUptimeMs", receipt,
                 "receiptElapsedNanos", receiptNanos, "eventUptimeMs", event.getEventTime(),
-                "downUptimeMs", event.getDownTime(), "device", alias,
-                "deviceIdentity", alias == 0 ? "unaliased" : deviceIdentities[alias], "source", source,
+                "downUptimeMs", event.getDownTime(), "device", device.alias(),
+                "deviceIdentity", device.identity(), "source", source,
                 "toolType", tool, "action", event.getAction(), "actionMasked", action,
                 "actionButton", event.getActionButton(), "buttonState", buttons,
                 "pointerId", event.getPointerId(0), "pointerCount", event.getPointerCount(),
@@ -315,6 +321,8 @@ public final class ProbeActivity extends Activity implements InputManager.InputD
             case MotionEvent.ACTION_UP -> PointerState.Action.UP;
             case MotionEvent.ACTION_MOVE -> PointerState.Action.MOVE;
             case MotionEvent.ACTION_CANCEL -> PointerState.Action.CANCEL;
+            case MotionEvent.ACTION_POINTER_DOWN -> PointerState.Action.POINTER_DOWN;
+            case MotionEvent.ACTION_POINTER_UP -> PointerState.Action.POINTER_UP;
             case MotionEvent.ACTION_HOVER_ENTER -> PointerState.Action.HOVER_ENTER;
             case MotionEvent.ACTION_HOVER_MOVE -> PointerState.Action.HOVER_MOVE;
             case MotionEvent.ACTION_HOVER_EXIT -> PointerState.Action.HOVER_EXIT;
@@ -334,23 +342,19 @@ public final class ProbeActivity extends Activity implements InputManager.InputD
                 "firstUnpressedMove", result.firstUnpressedMove(), "regionChanged", result.regionChanged());
     }
 
-    private int nextAlias;
-
-    private int alias(int deviceId) {
-        int alias = deviceAliases.get(deviceId);
-        if (alias != 0 || nextAlias == MAX_DEVICES) return alias;
-        alias = ++nextAlias;
-        deviceAliases.put(deviceId, alias);
-        devices[alias] = new PointerState();
-        if (wsaCompatibility) wsaPointers[alias] = new WsaPointer(ViewConfiguration.get(this).getScaledTouchSlop());
-        InputDevice device = InputDevice.getDevice(deviceId);
-        deviceIdentities[alias] = device == null
-                ? (deviceId < 0 ? "negative-unregistered" : "unregistered")
-                : (device.isVirtual() ? "virtual" : "registered");
-        return alias;
+    private DeviceAliases.Device device(int id) {
+        return deviceAliases.get(id, deviceId -> {
+            InputDevice device = InputDevice.getDevice(deviceId);
+            if (device == null) return deviceId < 0 ? "negative-unregistered" : "unregistered";
+            return device.isVirtual() ? "virtual" : "registered";
+        }, input::attach);
     }
 
     private void layout(String reason) {
+        layout(reason, SystemClock.uptimeMillis());
+    }
+
+    private void layout(String reason, long through) {
         if (a == null || a.getWidth() == 0 || b.getWidth() == 0) return;
         bounds(a, nextA);
         bounds(b, nextB);
@@ -361,12 +365,13 @@ public final class ProbeActivity extends Activity implements InputManager.InputD
         if (width == windowWidth && height == windowHeight && config.densityDpi == densityDpi
                 && config.orientation == orientation && mode == windowMode
                 && nextA.equals(aBounds) && nextB.equals(bBounds)) return;
-        if (revision != 0) cancelAll("layout-change");
+        if (revision != 0) cancelAll("layout-change", through);
         aBounds.set(nextA);
         bBounds.set(nextB);
         windowWidth = width;
         windowHeight = height;
         densityDpi = config.densityDpi;
+        touchSlop = ViewConfiguration.get(this).getScaledTouchSlop();
         orientation = config.orientation;
         windowMode = mode;
         revision++;
@@ -376,7 +381,7 @@ public final class ProbeActivity extends Activity implements InputManager.InputD
 
     private Map<String, Object> geometry(String reason) {
         return fields("reason", reason, "windowWidth", windowWidth, "windowHeight", windowHeight,
-                "densityDpi", densityDpi, "orientation", orientation, "multiWindow", windowMode == 1,
+                "densityDpi", densityDpi, "touchSlopPx", touchSlop, "orientation", orientation, "multiWindow", windowMode == 1,
                 "regionA", rectFields(aBounds), "regionB", rectFields(bBounds));
     }
 
@@ -400,21 +405,28 @@ public final class ProbeActivity extends Activity implements InputManager.InputD
     }
 
     private void cancelAll(String reason) {
-        wsaInvalidatedUptime = SystemClock.uptimeMillis();
-        for (int i = 1; i <= nextAlias; i++) cancel(i, reason);
+        cancelAll(reason, SystemClock.uptimeMillis());
+    }
+
+    private void cancelAll(String reason, long through) {
+        input.fenceOpenings(through);
+        for (int slot = 1; slot <= MAX_DEVICES; slot++) {
+            var device = deviceAliases.at(slot);
+            if (device != null) cancel(device, reason, through);
+        }
         resetDisplay();
     }
 
-    private void cancel(int alias, String reason) {
-        recordCancellation(alias, devices[alias].cancel(reason), "android-mouse");
-        if (wsaPointers[alias] != null) {
-            recordCancellation(alias, wsaPointers[alias].cancel(reason), "wsa-experimental");
+    private void cancel(DeviceAliases.Device device, String reason, long through) {
+        recordCancellation(device, input.invalidate(device.slot(), through, reason, false), ProbeInput.STANDARD);
+        if (wsaCompatibility) {
+            recordCancellation(device, input.invalidate(device.slot(), through, reason, true), ProbeInput.WSA);
         }
     }
 
-    private void recordCancellation(int alias, PointerState.Result result, String interpretation) {
+    private void recordCancellation(DeviceAliases.Device device, PointerState.Result result, String interpretation) {
         if (result.cancelled() != 0 || result.regionChanged()) {
-            note("cancellation", fields("device", alias, "deviceIdentity", deviceIdentities[alias],
+            note("cancellation", fields("device", device.alias(), "deviceIdentity", device.identity(),
                     "normalized", normalized(result, interpretation)));
         }
     }
@@ -423,7 +435,8 @@ public final class ProbeActivity extends Activity implements InputManager.InputD
         active = OUTSIDE;
         rawHit = OUTSIDE;
         latest = "Waiting for pointer";
-        rawButtons = heldButtons = inputAlias = 0;
+        rawButtons = heldButtons = 0;
+        inputAlias = 0;
         screenX = screenY = Float.NaN;
     }
 
@@ -450,9 +463,9 @@ public final class ProbeActivity extends Activity implements InputManager.InputD
         if (exporting) return;
         if (!trace.recording()) {
             traceFile().delete();
+            for (int slot = 1; slot <= MAX_DEVICES; slot++) input.detach(slot);
             deviceAliases.clear();
-            nextAlias = 0;
-            wsaInvalidatedUptime = SystemClock.uptimeMillis();
+            input.fenceOpenings(SystemClock.uptimeMillis());
             resetDisplay();
             scroll = "—";
             marker = 0;

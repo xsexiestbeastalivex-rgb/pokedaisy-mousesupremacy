@@ -2,143 +2,184 @@ package com.pokedaisy.mousesupremacy.probe;
 
 import static com.pokedaisy.mousesupremacy.probe.PointerState.BUTTONS;
 import static com.pokedaisy.mousesupremacy.probe.PointerState.OUTSIDE;
+import static com.pokedaisy.mousesupremacy.probe.PointerState.Action.*;
+import com.pokedaisy.mousesupremacy.probe.PointerState.Sample;
 
-/** Experimental interpretation of the translated events observed on WSA. One instance per guest ID. */
+/** Interprets the paired touch/generic representations observed on the selected WSA host. */
 final class WsaPointer {
     private static final int SOURCE_TOUCHSCREEN = 0x1002;
     private static final int TOOL_TYPE_FINGER = 1;
 
-    record Sample(PointerState.Action action, String hit, float x, float y,
-                  long downTime, long eventTime, int pointerId, int pointerCount,
-                  int actionButton, int buttons, boolean focused, boolean batched) {}
-
-    static boolean accepts(boolean enabled, int source, int tool, int alias) {
-        return enabled && source == SOURCE_TOUCHSCREEN && tool == TOOL_TYPE_FINGER && alias != 0;
+    static boolean accepts(boolean enabled, int source, int tool, int slot) {
+        return enabled && source == SOURCE_TOUCHSCREEN && tool == TOOL_TYPE_FINGER && slot != 0;
     }
 
-    private final float slopSquared;
     private Sample start;
-    private long lastDownTime;
+    private Sample terminal;
+    private long closedThrough = -1;
+    private long lastEvent;
     private boolean sawTouchDown;
     private boolean sawButtonPress;
     private boolean sawPress;
     private boolean sawHover;
     private boolean dragging;
     private boolean clickEligible;
-    private int held;
     private String region = OUTSIDE;
 
-    WsaPointer(float touchSlop) {
-        slopSquared = touchSlop * touchSlop;
+    boolean active() {
+        return start != null;
     }
 
-    PointerState.Result observe(Sample sample) {
+    boolean applies(Sample sample) {
+        return active() && sample.eventTime() >= start.downTime()
+                && (sample.isHover() || sample.downTime() <= 0 || sample.downTime() >= start.downTime());
+    }
+
+    PointerState.Result observe(Sample sample, float slop) {
         if (!sample.focused()) return null;
-        if (sample.pointerCount() != 1) return cancel("ambiguous-contact");
-        return switch (sample.action()) {
-            case HOVER_ENTER, HOVER_MOVE, HOVER_EXIT -> hover(sample);
-            case DOWN, BUTTON_PRESS -> begin(sample);
-            case MOVE, UP, BUTTON_RELEASE, CANCEL -> continueContact(sample);
-            default -> null;
-        };
+        if (sample.isHover()) return hover(sample);
+        if (!sample.isContact()) return null;
+        if (sample.action() == CANCEL || sample.pointerCount() != 1
+                || sample.action() == POINTER_DOWN || sample.action() == POINTER_UP) {
+            return reject(sample, sample.action() == CANCEL ? "android-cancel" : "ambiguous-contact");
+        }
+        if (sample.downTime() <= closedThrough || active() && sample.downTime() < start.downTime()) return null;
+        if (sample.isOpening() && (!active() || sample.downTime() > start.downTime())
+                && sample.eventTime() < lastEvent) return null;
+        if (active() && sample.downTime() > start.downTime()) {
+            var abandoned = cancel("superseded-contact");
+            // Keep the new opening half. Report the previous generation's cancellation on this row.
+            if (sample.isOpening()) begin(sample);
+            else retire(sample.downTime());
+            return abandoned;
+        }
+        if (sample.isOpening()) return begin(sample);
+        if (!active()) {
+            // Terminal-first delivery, or motion before a complete opening, cannot later arm.
+            retire(sample.downTime());
+            return null;
+        }
+        return continueContact(sample, slop);
     }
 
     private PointerState.Result hover(Sample sample) {
-        if (start != null || sample.buttons() != 0) return null;
-        if (sample.action() == PointerState.Action.HOVER_EXIT && !OUTSIDE.equals(sample.hit())) {
-            return result("hover-exit-inside", false, false, 0, 0, 0, 0);
+        if (active()) {
+            if (sample.eventTime() < lastEvent) return null;
+            if (OUTSIDE.equals(sample.hit())) return cancel("spatial-exit");
+            if (terminal != null) return cancel("incomplete-release");
         }
+        if (sample.buttons() != 0) return null;
+        if (sample.action() == HOVER_EXIT && !OUTSIDE.equals(sample.hit())) {
+            return result("hover-exit-inside", false, false, 0, 0, 0, armedButton(), 0);
+        }
+        if (active()) return cancel("button-state-lost");
         boolean changed = setRegion(sample.hit());
-        boolean first = sample.action() == PointerState.Action.HOVER_MOVE
-                && !sawHover && !sawPress && !OUTSIDE.equals(region);
+        boolean first = sample.action() == HOVER_MOVE && !sawHover && !sawPress && !OUTSIDE.equals(region);
         sawHover |= first;
-        return result(sample.action().name(), changed, first, 0, 0, 0, 0);
+        return result(sample.action().name(), changed, first, 0, 0, 0, 0, 0);
     }
 
     private PointerState.Result begin(Sample sample) {
-        boolean same = matches(sample);
-        if (start != null && !same) {
-            // A newer contact on the same reported ID makes the current contact ambiguous.
-            if (sample.downTime() <= lastDownTime) return null;
-            lastDownTime = sample.downTime();
-            return cancel("overlapping-contact");
-        }
         int button = sample.buttons();
-        boolean touchDown = sample.action() == PointerState.Action.DOWN;
-        if ((button & BUTTONS) != button || Integer.bitCount(button) != 1
-                || (!touchDown && sample.actionButton() != button)
-                || sample.eventTime() != sample.downTime() || OUTSIDE.equals(sample.hit())) return null;
-        if (!same) {
-            if (sample.downTime() <= lastDownTime) return null;
-            lastDownTime = sample.downTime();
+        boolean touchDown = sample.action() == DOWN;
+        boolean valid = button == (button & BUTTONS) && Integer.bitCount(button) == 1
+                && (touchDown ? sample.actionButton() == 0 : sample.actionButton() == button)
+                && sample.eventTime() == sample.downTime() && !OUTSIDE.equals(sample.hit()) && sample.hasPosition();
+        if (!valid || active() && (!start.samePoint(sample) || start.pointerId() != sample.pointerId()
+                || start.buttons() != button)) return reject(sample, "inconsistent-press");
+        // Repeated opening representations after admission can carry the old opening timestamp.
+        if (armedButton() != 0 || terminal != null) return null;
+        if (!active()) {
             start = sample;
-        } else if (button != start.buttons() || !sample.hit().equals(start.hit())
-                || sample.x() != start.x() || sample.y() != start.y()) {
-            return cancel("inconsistent-press");
+            lastEvent = sample.eventTime();
         }
         sawTouchDown |= touchDown;
         sawButtonPress |= !touchDown;
-        if (held != 0 || !sawTouchDown || !sawButtonPress) return null;
-        held = button;
-        boolean changed = setRegion(sample.hit());
-        sawPress = true;
-        clickEligible = true;
-        return result("BUTTON_PRESS", changed, false, held, 0, 0, 0);
+        if (!sawTouchDown || !sawButtonPress) return null;
+        sawPress = clickEligible = true;
+        return result("BUTTON_PRESS", setRegion(sample.hit()), false, button, 0, 0, button, 0);
     }
 
-    private PointerState.Result continueContact(Sample sample) {
-        if (!matches(sample)) return null;
-        if (sample.action() == PointerState.Action.CANCEL) return cancel("android-cancel");
+    private PointerState.Result continueContact(Sample sample, float slop) {
+        if (sample.eventTime() < lastEvent) return cancel("reordered-contact");
+        if (sample.pointerId() != start.pointerId() || !sample.hasPosition()) return cancel("ambiguous-contact");
         if (OUTSIDE.equals(sample.hit())) return cancel("spatial-exit");
-        if (held == 0) {
-            clearContact();
+        int button = admittedButton();
+        if (button == 0) {
+            cancel("incomplete-press");
             return null;
         }
-        if (sample.action() == PointerState.Action.MOVE && sample.buttons() != held) {
+        lastEvent = sample.eventTime();
+        if (sample.action() == MOVE && (sample.buttons() != button || terminal != null)) {
             return cancel("button-state-changed");
         }
-        if (sample.action() == PointerState.Action.BUTTON_RELEASE
-                && (sample.actionButton() != held || sample.buttons() != 0)) {
-            return cancel("inconsistent-release");
-        }
-        if (sample.action() == PointerState.Action.UP && sample.buttons() != 0) {
-            return cancel("inconsistent-release");
-        }
+        if (sample.isTerminal() && !validTerminal(sample, button)) return cancel("inconsistent-release");
 
         float dx = sample.x() - start.x();
         float dy = sample.y() - start.y();
         boolean wasDragging = dragging;
-        dragging |= dx * dx + dy * dy > slopSquared;
-        // A batched move can hide an excursion in its history. Suppress a click when that path is unknown.
+        dragging |= dx * dx + dy * dy > slop * slop;
         clickEligible &= !sample.batched() && start.hit().equals(sample.hit());
         boolean changed = setRegion(sample.hit());
-        if (sample.action() == PointerState.Action.MOVE) {
+        if (sample.action() == MOVE) {
             String phase = dragging ? (wasDragging ? "drag" : "drag-start") : "MOVE";
-            return result(phase, changed, false, 0, 0, 0, 0);
+            return result(phase, changed, false, 0, 0, 0, button, 0);
         }
-        int released = held;
-        held = 0;
-        int click = !dragging && clickEligible ? released : 0;
-        var result = result(dragging ? "drag-release" : "BUTTON_RELEASE", changed, false, 0, released, 0, click);
-        clearContact();
-        return result;
+
+        if (terminal == null) {
+            terminal = sample;
+            // Either representation ends the held state. A click needs corroboration from both.
+            return result("release-pending", changed, false, 0, 0, 0, 0, 0);
+        }
+        if (terminal.eventTime() != sample.eventTime() || !terminal.samePoint(sample)) {
+            return cancel("inconsistent-release");
+        }
+        if (terminal.action() == sample.action()) return null;
+        int click = !dragging && clickEligible ? button : 0;
+        var released = result(dragging ? "drag-release" : "BUTTON_RELEASE", changed,
+                false, 0, button, 0, 0, click);
+        close();
+        return released;
+    }
+
+    private static boolean validTerminal(Sample sample, int button) {
+        return sample.buttons() == 0 && (sample.action() == UP ? sample.actionButton() == 0
+                : sample.actionButton() == button);
+    }
+
+    PointerState.Result reject(Sample sample, String reason) {
+        if (active() && !applies(sample)) return null;
+        retire(sample.downTime());
+        return active() ? cancel(reason) : null;
+    }
+
+    PointerState.Result invalidate(long through, String reason) {
+        retire(through);
+        return cancel(reason);
     }
 
     PointerState.Result cancel(String reason) {
-        boolean changed = setRegion(OUTSIDE);
-        int cancelled = held;
-        clearContact();
-        return result(reason, changed, false, 0, 0, cancelled, 0);
+        var result = result(reason, setRegion(OUTSIDE), false, 0, 0, admittedButton(), 0, 0);
+        close();
+        return result;
     }
 
-    private void clearContact() {
-        start = null;
+    private int admittedButton() {
+        return active() && sawTouchDown && sawButtonPress ? start.buttons() : 0;
+    }
+
+    private int armedButton() {
+        return terminal == null ? admittedButton() : 0;
+    }
+
+    private void close() {
+        if (active()) retire(start.downTime());
+        start = terminal = null;
         sawTouchDown = sawButtonPress = dragging = clickEligible = false;
-        held = 0;
     }
 
-    private boolean matches(Sample sample) {
-        return start != null && sample.downTime() == start.downTime() && sample.pointerId() == start.pointerId();
+    private void retire(long downTime) {
+        closedThrough = Math.max(closedThrough, downTime);
     }
 
     private boolean setRegion(String hit) {
@@ -148,7 +189,7 @@ final class WsaPointer {
     }
 
     private PointerState.Result result(String phase, boolean changed, boolean firstHover,
-                                       int pressed, int released, int cancelled, int click) {
+                                       int pressed, int released, int cancelled, int held, int click) {
         return new PointerState.Result(phase, region, changed, firstHover, pressed, released,
                 cancelled, held, !sawPress, dragging, click);
     }

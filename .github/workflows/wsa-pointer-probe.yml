@@ -2,11 +2,16 @@ name: WSA pointer probe APK
 
 on:
   push:
-    branches: [feat/wsa-pointer-probe]
+    branches: ['**']
     paths:
       - 'tools/wsa-pointer-probe/**'
       - '.github/workflows/wsa-pointer-probe.yml'
   workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full commit SHA to build
+        type: string
+        required: true
 
 permissions:
   contents: read
@@ -16,9 +21,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Select exact source
+        id: source
+        env:
+          REQUESTED_SHA: ${{ inputs.source_sha || github.sha }}
+        run: |
+          [[ "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          echo "sha=$REQUESTED_SHA" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
+          ref: ${{ steps.source.outputs.sha }}
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with:
           distribution: temurin
@@ -27,11 +40,17 @@ jobs:
         with:
           packages: 'platforms;android-34 build-tools;35.0.0'
           log-accepted-android-sdk-licenses: false
-      - run: tools/wsa-pointer-probe/test.sh
+      - name: Verify checkout and test probe
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          tools/wsa-pointer-probe/test.sh
+          pwsh -NoProfile -File tools/wsa-pointer-probe/test/Test-Runner.ps1
       - run: tools/wsa-pointer-probe/build.sh "$RUNNER_TEMP/pointer-probe"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: pointer-probe-${{ github.sha }}
+          name: pointer-probe-${{ steps.source.outputs.sha }}
           path: ${{ runner.temp }}/pointer-probe
           if-no-files-found: error
           retention-days: 7

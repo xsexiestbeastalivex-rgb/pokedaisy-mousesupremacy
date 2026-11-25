@@ -2,6 +2,9 @@ package com.pokedaisy.mousesupremacy.probe;
 
 import static com.pokedaisy.mousesupremacy.probe.PointerState.Action.*;
 import static com.pokedaisy.mousesupremacy.probe.PointerState.OUTSIDE;
+import com.pokedaisy.mousesupremacy.probe.PointerState.Action;
+import com.pokedaisy.mousesupremacy.probe.PointerState.Result;
+import com.pokedaisy.mousesupremacy.probe.PointerState.Sample;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -11,77 +14,96 @@ import java.util.List;
 
 public final class WsaProbeTest {
     public static void main(String[] args) throws Exception {
-        replay(Path.of(args[0]));
+        var rows = Files.readAllLines(Path.of(args[0]));
+        replay(rows, true);
+        mutation("windowed-hover", rows.stream().map(row -> row.startsWith("windowed-hover\t")
+                ? row.replace("\tB\t", "\tA\t") : row).toList());
+        mutation("maximized-hover", rows.stream().map(row -> row.startsWith("maximized-hover\t")
+                ? row.replace("\tB\t", "\tA\t") : row).toList());
+        mutation("maximized-resize", rows.stream().filter(row -> !row.startsWith("maximized-resize\tlayout\t")).toList());
         admission();
-        isolation();
-        ordering();
-        cancellation();
-        dragAndClick();
-        System.out.println("5 focused WSA tests and 12 sanitized physical replay cases passed.");
+        pairedOrdering();
+        terminalFirst();
+        reordered();
+        missingRepresentations();
+        contradictoryTerminals();
+        spatialAndAmbiguousCancel();
+        dragAndSlop();
+        arbitration();
+        deviceChurn();
+        System.out.println("PASS 10 WSA/router synthetic cases, 12 physical-derived replays, 3 deliberate mutations rejected");
     }
 
-    private record Expected(List<Integer> presses, List<Integer> releases, List<Integer> cancels,
-                            List<Integer> clicks, boolean hover, boolean drag) {}
-
-    private static void replay(Path file) throws Exception {
+    private static void replay(List<String> rows, boolean report) {
         var cases = new LinkedHashMap<String, List<String[]>>();
-        for (String row : Files.readAllLines(file)) {
+        for (String row : rows) {
             if (row.isBlank() || row.startsWith("#")) continue;
             var fields = row.split("\t");
             cases.computeIfAbsent(fields[0], ignored -> new ArrayList<>()).add(fields);
         }
         expect(12, cases.size());
-        var allButtons = List.of(1, 2, 4);
-        var left = List.of(1);
-        List<Integer> none = List.of();
         for (var entry : cases.entrySet()) {
             String name = entry.getKey();
-            var expected = switch (name) {
-                case "windowed-hover", "maximized-hover" -> new Expected(none, none, none, none, true, false);
-                case "windowed-buttons", "maximized-buttons" ->
-                        new Expected(allButtons, allButtons, none, allButtons, true, false);
-                case "windowed-vertical-swipes", "maximized-wheel" ->
-                        new Expected(none, none, none, none, false, false);
-                case "windowed-horizontal-swipes" -> new Expected(none, none, none, none, true, false);
-                case "windowed-drag" -> new Expected(left, left, none, none, true, true);
-                case "windowed-outside" -> new Expected(left, none, left, none, false, true);
-                case "windowed-focus" -> new Expected(left, none, left, none, false, false);
-                case "maximized-focus-cancel" -> new Expected(List.of(1, 1), left, left, left, false, true);
-                case "maximized-resize" -> new Expected(left, left, none, left, true, false);
+            String expected = switch (name) {
+                case "windowed-hover" -> "first:A hover:outside hover:B hover:outside";
+                case "maximized-hover" -> "first:A hover:B hover:A";
+                case "windowed-buttons", "maximized-buttons" -> "first:A p1:A pending:A r1:A click1:A "
+                        + "p2:A pending:A r2:A click2:A p4:A pending:A r4:A click4:A";
+                case "windowed-vertical-swipes", "maximized-wheel" -> "";
+                case "windowed-horizontal-swipes" -> "first:A";
+                case "windowed-drag" -> "first:A p1:A drag-start:A move:B pending:B r1:B";
+                case "windowed-outside" -> "p1:A drag-start:A cancel1:spatial-exit";
+                case "windowed-focus" -> "p1:A focus:0 cancel1:window-focus focus:1";
+                case "maximized-focus-cancel" -> "p1:A drag-start:A focus:0 cancel1:window-focus focus:1 "
+                        + "hover:A p1:A pending:A r1:A click1:A";
+                case "maximized-resize" -> "focus:0 layout:0 focus:1 layout:1 first:A focus:0 focus:1 "
+                        + "hover:A hover:B hover:A p1:A pending:A r1:A click1:A";
                 default -> throw new AssertionError(name);
             };
-            var pointer = new WsaPointer(10);
-            var pressed = new ArrayList<Integer>();
-            var released = new ArrayList<Integer>();
-            var cancelled = new ArrayList<Integer>();
-            var clicks = new ArrayList<Integer>();
-            boolean hover = false;
-            boolean drag = false;
+            var pointer = new WsaPointer();
+            var actual = new ArrayList<String>();
             for (var fields : entry.getValue()) {
-                PointerState.Result result;
-                if ("layout".equals(fields[1]) || "window-focus".equals(fields[1])) {
+                Result result;
+                boolean marker = "layout".equals(fields[1]) || "window-focus".equals(fields[1]);
+                if (marker) {
+                    actual.add(("layout".equals(fields[1]) ? "layout:" : "focus:") + fields[2]);
                     if ("window-focus".equals(fields[1]) && bit(fields[2])) continue;
                     result = pointer.cancel(fields[1]);
                 } else {
                     expect(true, WsaPointer.accepts(true, number(fields, 13), number(fields, 14), 1));
                     expect(false, bit(fields[15]));
-                    result = pointer.observe(new WsaPointer.Sample(PointerState.Action.valueOf(fields[1]),
-                            fields[2], number(fields, 3), number(fields, 4), number(fields, 5), number(fields, 6),
+                    result = pointer.observe(new Sample(Action.valueOf(fields[1]), fields[2],
+                            number(fields, 3), number(fields, 4), number(fields, 5), number(fields, 6),
                             number(fields, 7), number(fields, 8), number(fields, 9), number(fields, 10),
-                            bit(fields[11]), bit(fields[12])));
+                            bit(fields[11]), bit(fields[12])), 10);
                 }
                 if (result == null) continue;
-                if (result.pressed() != 0) pressed.add(result.pressed());
-                if (result.released() != 0) released.add(result.released());
-                if (result.cancelled() != 0) cancelled.add(result.cancelled());
-                if (result.click() != 0) clicks.add(result.click());
-                hover |= result.firstUnpressedMove();
-                drag |= result.dragging();
+                String region = ":" + result.region();
+                if (result.firstUnpressedMove()) actual.add("first" + region);
+                else if (result.phase().startsWith("HOVER") && result.regionChanged()) actual.add("hover" + region);
+                if (result.pressed() > 0) actual.add("p" + result.pressed() + region);
+                if (result.phase().equals("drag-start")) actual.add("drag-start" + region);
+                else if (result.phase().equals("drag") && result.regionChanged()) actual.add("move" + region);
+                if (result.phase().equals("release-pending")) actual.add("pending" + region);
+                if (result.released() > 0) actual.add("r" + result.released() + region);
+                if (result.cancelled() > 0) actual.add("cancel" + result.cancelled() + ":" + result.phase());
+                if (result.click() > 0) actual.add("click" + result.click() + region);
             }
-            var actual = new Expected(pressed, released, cancelled, clicks, hover, drag);
-            if (!expected.equals(actual)) throw new AssertionError(name + ": " + expected + " vs " + actual);
-            System.out.println("PASS replay " + name);
+            String ordered = String.join(" ", actual);
+            if (!expected.equals(ordered)) throw new AssertionError(name + ": expected [" + expected + "], got [" + ordered + "]");
+            if (report) System.out.println("PASS replay " + name);
         }
+    }
+
+    private static void mutation(String affected, List<String> rows) {
+        try {
+            replay(rows, false);
+        } catch (AssertionError error) {
+            if (!error.getMessage().startsWith(affected + ":")) throw error;
+            System.out.println("PASS mutation rejected " + affected);
+            return;
+        }
+        throw new AssertionError("mutation escaped " + affected);
     }
 
     private static void admission() {
@@ -89,78 +111,228 @@ public final class WsaProbeTest {
         expect(false, WsaPointer.accepts(true, 0x1002, 1, 0));
         expect(false, WsaPointer.accepts(true, 0x2002, 3, 1));
         expect(false, WsaPointer.accepts(true, 0x1002, 2, 1));
-        var state = new WsaPointer(10);
-        expect(null, state.observe(sample(DOWN, "A", 100, 0, 0, 0)));
-        expect(null, state.observe(sample(MOVE, "B", 100, 0, 0, 80)));
-        expect(null, state.observe(sample(UP, "B", 100, 0, 0, 80)));
-        expect(null, state.observe(sample(BUTTON_PRESS, "A", 200, 2, 2, 0)));
-        expect(null, state.observe(sample(UP, "A", 200, 0, 0, 0)));
+        var state = new WsaPointer();
+        expect(null, feed(state, sample(DOWN, "A", 100, 100, 0, 0)));
+        expect(null, feed(state, sample(MOVE, "B", 100, 130, 0, 0)));
+        expect(null, feed(state, sample(UP, "B", 100, 140, 0, 0)));
+        expect(null, feed(state, sample(BUTTON_PRESS, "A", 100, 100, 1, 1)));
     }
 
-    private static void isolation() {
-        var first = new WsaPointer(10);
-        var second = new WsaPointer(10);
-        first.observe(sample(DOWN, "A", 100, 0, 1, 0));
-        expect(null, second.observe(sample(BUTTON_PRESS, "A", 100, 1, 1, 0)));
-        expect(1, first.observe(sample(BUTTON_PRESS, "A", 100, 1, 1, 0)).pressed());
-        expect(null, second.observe(sample(UP, "A", 100, 0, 0, 0)));
-        expect(null, first.observe(sample(UP, "A", 101, 0, 0, 0)));
-        expect(null, first.observe(new WsaPointer.Sample(UP, "A", 0, 0, 100, 103, 1, 1, 0, 0, true, false)));
-        expect(1, first.observe(sample(DOWN, "B", 102, 0, 0, 0)).cancelled());
-        expect(null, first.observe(sample(BUTTON_RELEASE, "A", 100, 1, 0, 0)));
+    private static void pairedOrdering() {
+        for (int button : new int[]{1, 2, 4}) {
+            for (boolean reverse : new boolean[]{false, true}) {
+                var p = new WsaPointer();
+                var down = sample(DOWN, "A", 100, 100, 0, button);
+                var press = sample(BUTTON_PRESS, "A", 100, 100, button, button);
+                expect(null, feed(p, reverse ? press : down));
+                expect(null, feed(p, reverse ? press : down));
+                expect(button, feed(p, reverse ? down : press).pressed());
+                expect(null, feed(p, reverse ? down : press));
+                var up = sample(UP, "A", 100, 120, 0, 0);
+                var release = sample(BUTTON_RELEASE, "A", 100, 120, button, 0);
+                var pending = feed(p, reverse ? up : release);
+                expect(0, pending.held());
+                expect(0, pending.click());
+                expect(null, feed(p, reverse ? up : release));
+                var done = feed(p, reverse ? release : up);
+                expect(button, done.released());
+                expect(button, done.click());
+                expect(null, feed(p, up));
+                expect(null, feed(p, down));
+            }
+        }
     }
 
-    private static void ordering() {
-        var state = new WsaPointer(10);
-        expect(null, state.observe(sample(BUTTON_PRESS, "A", 100, 1, 1, 0)));
-        expect(1, state.observe(sample(DOWN, "A", 100, 0, 1, 0)).pressed());
-        expect(null, state.observe(sample(BUTTON_PRESS, "A", 100, 1, 1, 0)));
-        expect(1, state.observe(sample(UP, "A", 100, 0, 0, 0)).released());
-        expect(null, state.observe(sample(BUTTON_RELEASE, "A", 100, 1, 0, 0)));
-        expect(null, state.observe(sample(DOWN, "A", 100, 0, 1, 0)));
-        expect(null, state.observe(sample(BUTTON_PRESS, "A", 100, 1, 1, 0)));
+    private static void terminalFirst() {
+        for (Action terminal : new Action[]{UP, BUTTON_RELEASE}) {
+            var p = new WsaPointer();
+            expect(null, feed(p, sample(terminal, "A", 100, 120, terminal == UP ? 0 : 1, 0)));
+            expect(null, feed(p, sample(DOWN, "A", 100, 100, 0, 1)));
+            expect(null, feed(p, sample(BUTTON_PRESS, "A", 100, 100, 1, 1)));
+            open(p, 200);
+            expect(1, complete(p, 200, 220, "A").click());
+        }
     }
 
-    private static void cancellation() {
-        var state = new WsaPointer(10);
-        press(state, 100);
-        expect(1, state.cancel("layout-change").cancelled());
-        expect(null, state.observe(sample(BUTTON_RELEASE, "A", 100, 1, 0, 0)));
-        press(state, 200);
-        expect(1, state.observe(sample(CANCEL, "A", 200, 0, 0, 0)).cancelled());
-        press(state, 300);
-        expect(1, state.observe(new WsaPointer.Sample(OTHER, "A", 0, 0, 300, 301,
-                0, 2, 0, 1, true, false)).cancelled());
-        press(state, 400);
-        expect(1, state.observe(sample(MOVE, OUTSIDE, 400, 0, 1, 40)).cancelled());
-        expect(null, state.observe(sample(UP, "A", 400, 0, 0, 0)));
+    private static void reordered() {
+        var p = new WsaPointer();
+        open(p, 100);
+        feed(p, sample(MOVE, "A", 100, 140, 0, 1));
+        expect(1, feed(p, sample(UP, "A", 100, 120, 0, 0)).cancelled());
+        expect(null, feed(p, sample(BUTTON_RELEASE, "A", 100, 120, 1, 0)));
+        open(p, 200);
+        expect(null, feed(p, sample(UP, "A", 100, 250, 0, 0)));
+        expect(null, feed(p, sample(CANCEL, "A", 100, 260, 0, 0)));
+        expect(1, complete(p, 200, 265, "A").click());
+        expect(null, feed(p, sample(DOWN, "A", 250, 250, 0, 1)));
+        expect(null, feed(p, sample(BUTTON_PRESS, "A", 250, 250, 1, 1)));
+        expect(null, complete(p, 250, 270, "A"));
+        open(p, 300);
+        feed(p, sample(MOVE, "A", 300, 350, 0, 1));
+        expect(null, feed(p, sample(DOWN, "A", 325, 325, 0, 1)));
+        expect(1, complete(p, 300, 360, "A").click());
     }
 
-    private static void dragAndClick() {
-        var state = new WsaPointer(10);
-        press(state, 100);
-        expect("drag-start", state.observe(sample(MOVE, "B", 100, 0, 1, 40)).phase());
-        expect(0, state.observe(sample(UP, "A", 100, 0, 0, 0)).click());
-        press(state, 200);
-        state.observe(sample(MOVE, "B", 200, 0, 1, 2));
-        expect(0, state.observe(sample(UP, "A", 200, 0, 0, 0)).click());
-        press(state, 300);
-        state.observe(new WsaPointer.Sample(MOVE, "A", 1, 0, 300, 301, 0, 1, 0, 1, true, true));
-        expect(0, state.observe(sample(UP, "A", 300, 0, 0, 0)).click());
-        press(state, 400);
-        expect(1, state.observe(sample(UP, "A", 400, 0, 0, 0)).click());
+    private static void missingRepresentations() {
+        var p = new WsaPointer();
+        for (Action opening : new Action[]{DOWN, BUTTON_PRESS}) {
+            long down = opening == DOWN ? 100 : 200;
+            expect(null, feed(p, sample(opening, "A", down, down, opening == DOWN ? 0 : 1, 1)));
+            expect(null, feed(p, sample(UP, "A", down, down + 5, 0, 0)));
+            expect(null, feed(p, sample(BUTTON_RELEASE, "A", down, down + 5, 1, 0)));
+        }
+        open(p, 300);
+        var lonely = feed(p, sample(UP, "A", 300, 60_300, 0, 0));
+        expect(0, lonely.held());
+        expect(0, lonely.click());
+        expect(1, feed(p, sample(DOWN, "A", 60_400, 60_400, 0, 1)).cancelled());
+        expect(1, feed(p, sample(BUTTON_PRESS, "A", 60_400, 60_400, 1, 1)).pressed());
+        expect(1, complete(p, 60_400, 120_400, "A").click()); // corroborated stationary long hold
+        open(p, 120_500);
+        expect(1, feed(p, sample(DOWN, "A", 120_600, 120_600, 0, 1)).cancelled());
+        expect(1, feed(p, sample(BUTTON_PRESS, "A", 120_600, 120_600, 1, 1)).pressed());
+        expect(1, complete(p, 120_600, 120_610, "A").click());
+        open(p, 120_700);
+        expect(1, feed(p, sample(HOVER_MOVE, "A", 0, 120_710, 0, 0)).cancelled());
     }
 
-    private static void press(WsaPointer state, long time) {
-        expect(null, state.observe(sample(DOWN, "A", time, 0, 1, 0)));
-        expect(1, state.observe(sample(BUTTON_PRESS, "A", time, 1, 1, 0)).pressed());
+    private static void contradictoryTerminals() {
+        for (boolean wrongFirst : new boolean[]{false, true}) {
+            var p = new WsaPointer();
+            open(p, 100);
+            var up = sample(UP, "A", 100, 140, 0, 0);
+            var wrong = sample(BUTTON_RELEASE, "A", 100, 140, 2, 0);
+            var first = feed(p, wrongFirst ? wrong : up);
+            expect(0, first.click());
+            expect(wrongFirst ? 1 : 0, first.cancelled());
+            var last = feed(p, wrongFirst ? up : wrong);
+            if (wrongFirst) expect(null, last);
+            else { expect(1, last.cancelled()); expect(0, last.click()); }
+        }
+        var p = new WsaPointer();
+        open(p, 200);
+        feed(p, sample(UP, "A", 200, 230, 0, 0));
+        expect(1, feed(p, sample(BUTTON_RELEASE, "A", 200, 231, 1, 0)).cancelled());
+        open(p, 300);
+        expect(1, feed(p, sample(BUTTON_PRESS, "A", 300, 300, 2, 2)).cancelled());
     }
 
-    private static WsaPointer.Sample sample(PointerState.Action action, String region, long down,
-                                            int button, int buttons, int x) {
-        return new WsaPointer.Sample(action, region, x, 0, down, down, 0, 1, button, buttons, true, false);
+    private static void spatialAndAmbiguousCancel() {
+        var p = new WsaPointer();
+        open(p, 100);
+        expect(1, feed(p, sample(HOVER_EXIT, "A", 0, 102, 0, 0)).held());
+        expect(1, feed(p, sample(HOVER_EXIT, OUTSIDE, 0, 120, 0, 0)).cancelled());
+        expect(null, complete(p, 100, 140, "A"));
+        open(p, 200);
+        expect(1, feed(p, new Sample(CANCEL, "A", 0, 0, 200, 215, 7, 1, 0, 0, true, false)).cancelled());
+        expect(null, complete(p, 200, 220, "A"));
+        open(p, 300);
+        expect(1, feed(p, new Sample(POINTER_DOWN, "A", 0, 0, 300, 310, 0, 2, 0, 1, true, false)).cancelled());
+        expect(null, complete(p, 300, 330, "A"));
+        open(p, 400);
+        expect(1, complete(p, 400, 430, "A").click());
     }
 
+    private static void dragAndSlop() {
+        var p = new WsaPointer();
+        open(p, 100);
+        expect("drag-start", feed(p, new Sample(MOVE, "A", 20, 0, 100, 110, 0, 1, 0, 1, true, false)).phase());
+        expect(0, complete(p, 100, 120, "A").click());
+        open(p, 200);
+        feed(p, sample(MOVE, "B", 200, 205, 0, 1));
+        expect(0, complete(p, 200, 210, "A").click());
+        open(p, 300);
+        feed(p, new Sample(MOVE, "A", 1, 0, 300, 305, 0, 1, 0, 1, true, true));
+        expect(0, complete(p, 300, 310, "A").click());
+        open(p, 400);
+        expect(1, p.invalidate(450, "density-layout").cancelled());
+        expect(null, complete(p, 400, 460, "A"));
+        open(p, 451); // dispatch-time layout fence allows its first, distinct press
+        expect(false, p.observe(new Sample(MOVE, "A", 20, 0, 451, 460, 0, 1, 0, 1, true, false), 30).dragging());
+        expect(1, complete(p, 451, 470, "A").click());
+    }
+
+    private static void arbitration() {
+        var input = new ProbeInput(3);
+        for (int i = 1; i <= 3; i++) input.attach(i);
+        start(input, 100);
+        expect(null, input.observe(sample(HOVER_MOVE, "A", 105, 105, 0, 0), 2, 0x2002, 3, true, 10).displaced());
+        expect(null, input.observe(sample(UP, "A", 80, 115, 0, 0), 2, 0x2002, 3, true, 10).displaced());
+        var ambiguous = input.observe(sample(CANCEL, "A", 0, 120, 0, 0), 0, 0, 0, true, 10);
+        expect(1, ambiguous.displacedSlot());
+        expect(1, ambiguous.displaced().cancelled());
+        expect(null, finish(input, 100, 130));
+        start(input, 200);
+        var touch = input.observe(sample(DOWN, "A", 220, 220, 0, 0), 2, 0x1002, 1, true, 10);
+        expect(1, touch.displaced().cancelled());
+        expect(null, finish(input, 200, 225));
+        input.observe(sample(UP, "A", 220, 230, 0, 0), 2, 0x1002, 1, true, 10);
+        start(input, 300);
+        var mouse = input.observe(sample(DOWN, "A", 310, 310, 0, 1), 1, 0x2002, 3, true, 10);
+        expect(1, mouse.displaced().cancelled());
+        expect(1, mouse.result().pressed());
+        expect(0, mouse.result().click());
+        input.observe(sample(UP, "A", 310, 320, 0, 0), 1, 0x2002, 3, true, 10);
+        expect(null, finish(input, 300, 330));
+        start(input, 400);
+        var exit = input.observe(sample(HOVER_EXIT, OUTSIDE, 0, 405, 0, 0), 0, 0, 0, true, 10);
+        expect(1, exit.displaced().cancelled());
+        expect(null, finish(input, 400, 420));
+        start(input, 500);
+        expect(1, finish(input, 500, 520).click());
+    }
+
+    private static void deviceChurn() {
+        var aliases = new DeviceAliases(1);
+        var input = new ProbeInput(1);
+        var first = aliases.get(8, id -> "virtual", input::attach);
+        expect(0L, aliases.get(9, id -> "other", input::attach).alias());
+        start(input, 100);
+        expect(1, input.invalidate(first.slot(), 140, "device-changed", true).cancelled());
+        input.fenceOpenings(140);
+        for (int i = 0; i < 70; i++) {
+            var removed = aliases.remove(8);
+            input.detach(removed.slot());
+            var restored = aliases.get(8, id -> "registered", input::attach);
+            expect(removed.slot(), restored.slot());
+            expect(removed.alias() + 1, restored.alias());
+            expect("registered", restored.identity());
+        }
+        expect(null, translated(input, sample(DOWN, "A", 100, 100, 0, 1)));
+        expect(null, finish(input, 100, 145));
+        start(input, 200);
+        expect(1, finish(input, 200, 230).click());
+    }
+
+    private static Result translated(ProbeInput input, Sample sample) {
+        return input.observe(sample, 1, 0x1002, 1, true, 10).result();
+    }
+
+    private static void start(ProbeInput input, long time) {
+        expect(null, translated(input, sample(DOWN, "A", time, time, 0, 1)));
+        expect(1, translated(input, sample(BUTTON_PRESS, "A", time, time, 1, 1)).pressed());
+    }
+
+    private static Result finish(ProbeInput input, long down, long event) {
+        translated(input, sample(UP, "A", down, event, 0, 0));
+        return translated(input, sample(BUTTON_RELEASE, "A", down, event, 1, 0));
+    }
+
+    private static void open(WsaPointer p, long time) {
+        expect(null, feed(p, sample(DOWN, "A", time, time, 0, 1)));
+        expect(1, feed(p, sample(BUTTON_PRESS, "A", time, time, 1, 1)).pressed());
+    }
+
+    private static Result complete(WsaPointer p, long down, long event, String region) {
+        feed(p, sample(UP, region, down, event, 0, 0));
+        return feed(p, sample(BUTTON_RELEASE, region, down, event, 1, 0));
+    }
+
+    private static Sample sample(Action action, String region, long down, long event, int button, int mask) {
+        return new Sample(action, region, 0, 0, down, event, 0, 1, button, mask, true, false);
+    }
+
+    private static Result feed(WsaPointer p, Sample sample) { return p.observe(sample, 10); }
     private static int number(String[] fields, int index) { return Integer.parseInt(fields[index]); }
     private static boolean bit(String value) { return "1".equals(value); }
 

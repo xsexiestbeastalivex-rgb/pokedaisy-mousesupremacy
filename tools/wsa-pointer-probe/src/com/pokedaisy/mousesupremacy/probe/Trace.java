@@ -3,7 +3,6 @@ package com.pokedaisy.mousesupremacy.probe;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -15,7 +14,7 @@ final class Trace {
 
     private final int capacity;
     private final LinkedHashMap<Long, Map<String, Object>> entries = new LinkedHashMap<>();
-    private final LinkedHashSet<Long> moves = new LinkedHashSet<>();
+    private final LinkedHashMap<Long, String> moves = new LinkedHashMap<>();
     private final Map<String, Long> segmentMoves = new HashMap<>();
     private long sequence;
     private long coalesced;
@@ -48,7 +47,7 @@ final class Trace {
         if (moveKey == null) {
             segmentMoves.clear();
         } else {
-            Long previous = segmentMoves.put(moveKey, id);
+            Long previous = segmentMoves.get(moveKey);
             Map<String, Object> earlier = entries.get(previous);
             if (earlier != null && sameMotion(earlier, entry)) {
                 entries.remove(previous);
@@ -59,8 +58,10 @@ final class Trace {
 
         if (entries.size() == capacity) {
             if (!moves.isEmpty()) {
-                var oldest = moves.iterator();
-                entries.remove(oldest.next());
+                var oldest = moves.entrySet().iterator();
+                var removed = oldest.next();
+                entries.remove(removed.getKey());
+                segmentMoves.remove(removed.getValue(), removed.getKey());
                 oldest.remove();
                 discardedMoves++;
             } else if (moveKey != null) {
@@ -73,8 +74,13 @@ final class Trace {
         }
 
         entries.put(id, entry);
-        if (moveKey != null) moves.add(id);
+        if (moveKey != null) {
+            moves.put(id, moveKey);
+            segmentMoves.put(moveKey, id);
+        }
     }
+
+    int indexedMoves() { return segmentMoves.size(); }
 
     private static boolean sameMotion(Map<String, Object> a, Map<String, Object> b) {
         return Objects.equals(a.get("device"), b.get("device"))

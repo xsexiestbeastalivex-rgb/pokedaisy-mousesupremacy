@@ -6,6 +6,7 @@ param(
     [string]$Adb = 'C:\platform-tools\adb.exe',
     [string]$BuildDirectory,
     [ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedCommit,
+    [ValidatePattern('^[0-9a-fA-F]{64}$')][string]$ExpectedApkSha256,
     [ValidateSet('physical-wsa','physical-android','injected')][string]$Provenance = 'physical-wsa',
     [ValidateSet('windowed','maximized','stock-android','emulator','other')][string]$WindowMode = 'windowed',
     [switch]$Connect,
@@ -54,7 +55,10 @@ if ($devices -notmatch "(?m)^$escapedSerial\s+device(?:\s|$)" -or
 }
 
 if ($Action -eq 'Prepare') {
-    if (-not $ExpectedCommit) { throw 'Supply the exact trusted APK source commit with -ExpectedCommit.' }
+    if (-not $ExpectedCommit -or -not $ExpectedApkSha256) {
+        throw 'Supply the independently published source commit and APK SHA-256 with -ExpectedCommit and -ExpectedApkSha256.'
+    }
+    $trustedHash = $ExpectedApkSha256.ToLowerInvariant()
     if (Test-Path -LiteralPath $RunDirectory) { throw 'Choose a new run directory for each session.' }
     if ($WsaCompatibility -and $Provenance -ne 'physical-wsa') {
         throw 'Experimental WSA interpretation requires physical-wsa provenance.'
@@ -63,11 +67,11 @@ if ($Action -eq 'Prepare') {
     if ($metadata.schemaVersion -ne 1 -or $metadata.sourceCommit -cne $ExpectedCommit -or
         $metadata.package -cne $package -or $metadata.activity -cne $activity -or
         $metadata.apk -cne 'mousesupremacy-pointer-probe.apk' -or $metadata.signatureScheme -cne 'v2' -or
-        $metadata.sha256 -cnotmatch '^[0-9a-f]{64}$' -or $metadata.signerSha256 -cnotmatch '^[0-9a-f]{64}$') {
+        $metadata.sha256 -cne $trustedHash -or $metadata.signerSha256 -cnotmatch '^[0-9a-f]{64}$') {
         throw 'Trusted build metadata does not identify the expected standalone signed probe.'
     }
     $apk = Join-Path $BuildDirectory $metadata.apk
-    if ((Get-FileHash -LiteralPath $apk -Algorithm SHA256).Hash.ToLowerInvariant() -cne $metadata.sha256) {
+    if ((Get-FileHash -LiteralPath $apk -Algorithm SHA256).Hash.ToLowerInvariant() -cne $trustedHash) {
         throw 'APK SHA-256 mismatch. No APK was installed.'
     }
     $api = (Invoke-Target @('shell','getprop','ro.build.version.sdk')).Trim()
@@ -78,18 +82,19 @@ if ($Action -eq 'Prepare') {
         $wsaVersion = @(Get-AppxPackage '*WindowsSubsystemForAndroid*' | ForEach-Object { $_.Version.ToString() })
         if ($wsaVersion.Count -eq 0) { throw 'The existing WSA package was not found on this Windows host.' }
         if ($WindowMode -notin @('windowed','maximized')) { throw 'Select windowed or maximized for WSA.' }
-    }
-    $profile = 'android-standard'
-    if ($WsaCompatibility) {
         $manufacturer = (Invoke-Target @('shell','getprop','ro.product.manufacturer')).Trim()
         $hardware = (Invoke-Target @('shell','getprop','ro.hardware')).Trim()
         if ($manufacturer -ne 'Microsoft Corporation' -or $hardware -cnotlike 'windows_*') {
             throw 'The selected ADB target does not identify as a Microsoft WSA guest.'
         }
-        $profile = 'wsa-experimental'
     }
+    $profile = if ($WsaCompatibility) { 'wsa-experimental' } else { 'android-standard' }
     $session = [guid]::NewGuid().ToString('N')
-    $installed = Invoke-Target @('install','-r',$apk)
+    try {
+        $installed = Invoke-Target @('install','-r',$apk)
+    } catch {
+        throw 'Standalone probe install failed. Check the ADB message. For a disposable signer mismatch, back up the probe export and follow the runbook before replacing the probe.'
+    }
     if ($installed -notmatch '(?m)^Success\s*$') { throw 'Standalone probe install did not report success.' }
     $installedPath = Invoke-Target @('shell','pm','path',$package)
     if ($installedPath -notmatch '(?m)^package:') { throw 'Standalone package is missing after install.' }
@@ -128,6 +133,22 @@ if ($trace.schemaVersion -ne 1 -or $trace.session -cne $state.session -or
     $trace.capacity -ne 4096 -or $trace.events.Count -lt 2 -or $trace.events.Count -gt $trace.capacity -or
     $trace.events[-1].kind -cne 'end') {
     throw 'Trace is invalid or belongs to a different Prepare session. Capture and export on the intended target.'
+}
+$events = $trace.events
+$previous = 0L
+foreach ($event in $events) {
+    if ($event.seq -le $previous) { throw 'Invalid trace sequence order.' }
+    $previous = $event.seq
+}
+$hasLayout = @($events | Where-Object { $_.kind -ceq 'layout' -and $_.reason -ceq 'capture-start' }).Count -eq 1
+if ($trace.discardedBoundaries -ne 0 -or $events[0].kind -cne 'start' -or $events[0].seq -ne 1 -or
+    -not $hasLayout -or $previous -ne $trace.observedCount -or
+    ($events.Count + $trace.coalescedMoves + $trace.discardedMoves + $trace.discardedBoundaries) -ne $trace.observedCount) {
+    [IO.File]::WriteAllText((Join-Path $RunDirectory 'pointer-trace-incomplete.json'), ($json + "`n"), $encoding)
+    throw 'Incomplete capture. Retained a private diagnostic copy. Repeat the affected steps in a shorter capture before scoring.'
+}
+if ($trace.discardedMoves -gt 0) {
+    Write-Warning 'Some move samples were discarded. Score motion only where enough samples and boundaries remain.'
 }
 $tracePath = Join-Path $RunDirectory 'pointer-trace.json'
 [IO.File]::WriteAllText($tracePath, ($json + "`n"), $encoding)
