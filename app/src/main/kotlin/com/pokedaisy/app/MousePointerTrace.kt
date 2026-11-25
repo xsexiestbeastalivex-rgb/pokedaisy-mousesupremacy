@@ -86,12 +86,17 @@ internal class MousePointerTrace private constructor(
     }
 
     fun armBattleReference(scene: () -> Scene?) {
+        val mouse = battleMouse ?: return
         updateLayout(scene())
-        val current = layout ?: return
-        val quad = current.gameQuad() ?: return
+        val current = layout ?: return mouse.refuseReadinessProbe("layout-unavailable")
+        val quad = current.gameQuad() ?: return mouse.refuseReadinessProbe("game-quad-unavailable")
         val x = quad.left() + (quad.right() - quad.left()) * (144f / 240f)
         val y = quad.top() + (quad.bottom() - quad.top()) * (128f / 160f)
-        if (current.hit(x, y).owner() == PointerLayout.Owner.GAME) battleMouse?.armReadinessProbe()
+        if (current.hit(x, y).owner() != PointerLayout.Owner.GAME) {
+            mouse.refuseReadinessProbe("fight-covered")
+            return
+        }
+        mouse.armReadinessProbe()
     }
 
     fun layoutObserved(scene: () -> Scene?) {

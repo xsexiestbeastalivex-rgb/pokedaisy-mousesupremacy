@@ -23,15 +23,19 @@ internal class NativeBattleReader(
     internal enum class Profile(
         val code: String, val revision: Int, val sha1: String, val config: NativeConfig,
         val bg0y: Long, val exec: Long, val commandBuffer: Long,
-        val main1: Long, val main2: Long, val vblank: Long, val fade: Long? = null,
+        val main1: Long, val main2: Long, val vblank: Long,
+        val ordinarySetup: Long, val ordinaryReturn: Long, val fade: Long? = null,
     ) {
         FIRERED_REV0("BPRE", 0, "41cb23d8dccc8ebd7c649cd8fbb58eeace6e2fdc", NATIVE_FIRERED_REV0_RETAIL,
-            0x02022976L, 0x02023BC8L, 0x02022BC4L, 0x080123E5L, 0x08011101L, 0x080116F5L),
+            0x02022976L, 0x02023BC8L, 0x02022BC4L, 0x080123E5L, 0x08011101L, 0x080116F5L,
+            0x0807F756L, 0x0807FB41L),
         FIRERED_REV1("BPRE", 1, "dd5945db9b930750cb39d00c84da8571feebf417", NATIVE_FIRERED_REV1,
-            0x02022976L, 0x02023BC8L, 0x02022BC4L, 0x080123F9L, 0x08011115L, 0x08011709L),
+            0x02022976L, 0x02023BC8L, 0x02022BC4L, 0x080123F9L, 0x08011115L, 0x08011709L,
+            0x0807F76AL, 0x0807FB55L),
         // Byte-matched Emerald symbols from pk_coop_emerald.h and the upstream RAM fixture.
         EMERALD("BPEE", 0, "f3ae088181bf583e55daf962a92bb46f4f1d07b7", NATIVE_EMERALD_RETAIL,
-            0x02022E16L, 0x02024068L, 0x02023064L, 0x08039EF1L, 0x08038421L, 0x08038A29L, 0x02037FD4L),
+            0x02022E16L, 0x02024068L, 0x02023064L, 0x08039EF1L, 0x08038421L, 0x08038A29L,
+            0x080B06CAL, 0x080B0AF9L, 0x02037FD4L),
     }
 
     fun frame(): Long = runCatching { read.u32(cfg.gMainVblankCtr) }.getOrDefault(-1)
@@ -40,12 +44,14 @@ internal class NativeBattleReader(
 
     private fun readBattle(): Native {
         if (read.u8(cfg.gMainInBattle) and 2 == 0) return Native.UNKNOWN
-        // IS_MASTER can be set in non-link setup. All special, scripted and trainer flags are excluded.
+        // IS_MASTER can be set in non-link setup. Emerald scripted encounters can share these flags.
+        // gMain.savedCallback carries the return route installed by the exact encounter setup.
         if (read.u32(cfg.battleTypeFlags) !in WILD_FLAGS ||
             read.u8(cfg.battlersCount) != 2 ||
             !read.bytes(cfg.battlerPositions, 2).contentEquals(PLAYER_AND_FOE)) return Native.UNKNOWN
-        if (read.u32(cfg.gMain) != profile.main1 || read.u32(cfg.gMain + 4) != profile.main2 ||
-            read.u32(cfg.gMain + 12) != profile.vblank) return Native.UNKNOWN
+        val callbacks = read.bytes(cfg.gMain, 16)
+        if (callbacks.le32(0) != profile.main1 || callbacks.le32(4) != profile.main2 ||
+            callbacks.le32(8) != profile.ordinaryReturn || callbacks.le32(12) != profile.vblank) return Native.UNKNOWN
 
         if (read.u16(profile.bg0y - 2) != 0) return Native.UNKNOWN
         val visible = when (read.u16(profile.bg0y)) {
@@ -108,16 +114,35 @@ internal class NativeBattleReader(
             }
             val hash = digest.digest().joinToString("") { "%02x".format(it.byte()) }
             val profile = exactProfile(code, revision, hash) ?: return null
+            if (!ordinarySetupMatches(read, profile)) return null
             val palette = profile.fade ?: fireRedPaletteAddress(read, profile.config) ?: return null
             NativeBattleReader(read, profile, palette)
         }.getOrNull()
+
+        // Corroborate the profile against the exact loaded ROM's DoStandardWildBattle:
+        // load gMain, load CB2_EndWildBattle, store savedCallback, then clear gBattleTypeFlags.
+        internal fun ordinarySetupMatches(read: MemoryReader, profile: Profile): Boolean = runCatching {
+            val at = profile.ordinarySetup
+            val code = read.bytes(at, 12)
+            val flagsLoad = code.le16(6)
+            val flagsRegister = flagsLoad ushr 8 and 7
+            code.le16(0) and 0xFF00 == 0x4900 && code.le16(2) and 0xFF00 == 0x4800 &&
+                code.le16(4) == 0x6088 && flagsLoad and 0xF800 == 0x4800 && code.le16(8) == 0x2000 &&
+                code.le16(10) == (0x6000 or (flagsRegister shl 3)) &&
+                read.thumbLiteral(at, code.le16(0)) == profile.config.gMain &&
+                read.thumbLiteral(at + 2, code.le16(2)) == profile.ordinaryReturn &&
+                read.thumbLiteral(at + 6, flagsLoad) == profile.config.battleTypeFlags
+        }.getOrDefault(false)
+
+        private fun MemoryReader.thumbLiteral(at: Long, instruction: Int) =
+            u32(((at + 4) and 3L.inv()) + (instruction and 0xFF) * 4)
 
         // The exact-ROM Thumb literal that upstream BattleBall.find uses for CompleteWhenChoseItem.
         private fun fireRedPaletteAddress(read: MemoryReader, cfg: NativeConfig): Long? {
             val at = cfg.completeWhenChoseItem + 0x0C
             val instruction = read.u16(at)
             if (instruction and 0xF800 != 0x4800) return null
-            val palette = read.u32(((at + 4) and 3L.inv()) + (instruction and 0xFF) * 4)
+            val palette = read.thumbLiteral(at, instruction)
             return palette.takeIf { it in 0x02000000L..0x0203FFF6L }
         }
 

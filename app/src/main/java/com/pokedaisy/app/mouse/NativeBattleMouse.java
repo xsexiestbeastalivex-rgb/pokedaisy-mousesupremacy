@@ -2,11 +2,12 @@ package com.pokedaisy.app.mouse;
 
 import java.util.function.IntConsumer;
 
-/** One native Gen III battle lease. All UI publications and the final key write share this monitor. */
+/** Battle input, live leases and completed-frame evidence share the final-key-write monitor. */
 public final class NativeBattleMouse {
     public static final int A = 1, B = 2, RIGHT = 16, LEFT = 32, UP = 64, DOWN = 128;
     private static final int HOVER = 0, FIGHT = 1, BACK = 2;
     private static final int MAX_LAG = 6, MAX_ACK = 16, MAX_PROBE_BUSY = 4;
+    private static final long NO_FRAME = -1;
 
     public enum Menu { ACTION, MOVE }
 
@@ -14,42 +15,44 @@ public final class NativeBattleMouse {
         public static final Native UNKNOWN = new Native(null, null, -1, 0);
     }
 
-    public record Sample(long session, long context, long frame, Native nativeState) {}
+    // An unsettled ready frame keeps its raw readiness. It cannot masquerade as native busy.
+    public record Sample(long session, long context, long frame, Native nativeState, boolean settled) {}
     public record Picture(Sample sample, long transform, long time) {}
-    private record Target(long session, long context, long layout, long transform, Menu menu, int slot) {}
+    private record Surface(long session, long layout, long transform) {}
+    private record MenuLease(Surface surface, long context, Menu menu) {}
+    private record Target(MenuLease lease, int slot) {}
     private record Press(long gesture, int action, Target target) {}
     private record Intent(long gesture, int action, Target target, long time) {}
     private record Pulse(Intent intent, int mask, int expectedCursor, Menu expectedMenu, long before) {}
-    private record Reference(Menu from, long before, long busyBack, long result, boolean probe) {}
+    private record Arm(MenuLease lease, long frame) {}
+    private record Reference(Surface surface, Menu from, long before, long applied,
+                             long busy, long ready, boolean probe) {
+        Reference withApplied(long frame) { return new Reference(surface, from, before, frame, busy, ready, probe); }
+        Reference withBusy(long frame) { return new Reference(surface, from, before, applied, frame, ready, probe); }
+        Reference withReady(long frame) { return new Reference(surface, from, before, applied, busy, frame, probe); }
+        Menu destination() { return from == Menu.ACTION ? Menu.MOVE : Menu.ACTION; }
+    }
 
     @FunctionalInterface
     public interface Trace { void log(String row); }
 
     private final Trace trace;
     private boolean traceFailed;
-    private Sample probeArm;
+    private boolean active, qualifiedAction, qualifiedMove, qualifiedBusy;
+    private long session, context, layout, layoutTransform = -1;
     private Sample current;
     private Picture picture;
-    private long session, context, layout;
-    private long layoutTransform = -1;
-    private int lastApplied, dispatched;
-    private int probeSubmitted;
-    private long probeBefore;
-    private Pulse submitted;
-    private boolean qualifiedBusy;
-    private boolean active, qualifiedAction, qualifiedMove;
-    private Reference reference;
+    private long highestSwapped = NO_FRAME, withdrawnThrough = NO_FRAME;
+    private Sample lastLogged;
     private Press press;
-    private Intent intent;
-    private Pulse pulse;
-    private long appliedAt = -1;
+    private Intent intent, hover;
+    private Arm probeArm;
+    private Reference reference;
+    private Pulse pulse, submitted;
+    private long appliedAt = NO_FRAME;
     private boolean released;
-    private float pointerX, pointerY;
-    private long hoverTime;
-    private boolean hover;
-    private long hoverTransform;
-    private long presentedFrame = -1;
-    private Native lastPresented;
+    private int lastApplied, dispatched, probeSubmitted;
+    private long probeBefore;
 
     public NativeBattleMouse(Trace trace) { this.trace = trace; }
 
@@ -58,21 +61,8 @@ public final class NativeBattleMouse {
         try {
             trace.log(row);
         } catch (Exception observerFailure) {
-            // A diagnostic sink cannot interrupt a committed frame or own the input.
             traceFailed = true;
         }
-    }
-
-    /** An explicit dev-only command, accepted only on the currently shown ready FIGHT cell. */
-    public synchronized void armReadinessProbe() {
-        if (qualified() || probeArm != null || reference != null || !pictureMatches() ||
-                current.nativeState.ready != Menu.ACTION || current.nativeState.cursor != 0) {
-            note("reference probe refused");
-            return;
-        }
-        invalidate("reference-probe");
-        probeArm = current;
-        note("reference probe armed frame=" + current.frame);
     }
 
     public synchronized void session(boolean enabled) {
@@ -83,26 +73,36 @@ public final class NativeBattleMouse {
         probeSubmitted = 0;
         picture = null;
         current = null;
-        presentedFrame = -1;
-        lastPresented = null;
+        highestSwapped = withdrawnThrough = NO_FRAME;
+        lastLogged = null;
         lastApplied = -1;
-        reference = null;
-        invalidate("session");
+        appliedAt = NO_FRAME;
+        released = false;
+        interrupt("session");
     }
 
-    public synchronized void invalidate(String reason) {
-        probeArm = null;
-        if (reference != null && reference.probe) reference = null;
+    private void retireGesture(String reason) {
         if (press != null || intent != null || pulse != null) note("cancel reason=" + reason);
         press = null;
         intent = null;
         pulse = null;
-        hover = false;
+        hover = null;
+    }
+
+    private void retireReference(String reason) {
+        if (probeArm != null || reference != null) note("reference unavailable reason=" + reason);
+        probeArm = null;
+        reference = null;
+    }
+
+    public synchronized void invalidate(String reason) {
+        retireGesture(reason);
+        if (probeArm != null || (reference != null && reference.probe)) retireReference(reason);
     }
 
     public synchronized void interrupt(String reason) {
-        invalidate(reason);
-        reference = null;
+        retireGesture(reason);
+        retireReference(reason);
     }
 
     public synchronized void resetState() {
@@ -110,61 +110,125 @@ public final class NativeBattleMouse {
     }
 
     public synchronized void layout(long epoch, long transform) {
+        if (epoch == layout && transform == layoutTransform) return;
+        // The UI can discover a transform after GL already swapped it. Retire work, not GL evidence.
         layout = epoch;
         layoutTransform = transform;
+        interrupt("layout");
+    }
+
+    private Surface surface() { return new Surface(session, layout, layoutTransform); }
+
+    private MenuLease menuLease() {
+        return new MenuLease(surface(), current.context, current.nativeState.ready);
+    }
+
+    private static boolean within(long newer, long older, int limit) {
+        return older >= 0 && newer >= older && newer - older <= limit;
+    }
+
+    /** Expiry must be processed before either the native frame or the swapped picture is replaced. */
+    private void expirePresentation(long frame) {
+        if (picture == null || within(frame, picture.sample.frame, MAX_LAG)) return;
+        Picture expired = picture;
         picture = null;
-        invalidate("layout");
+        if (expired.transform == layoutTransform) interrupt("presentation-expired");
+    }
+
+    private boolean readyPicture(boolean requireCursor) {
+        if (current == null || current.nativeState.ready == null || !pictureCurrent()) return false;
+        Sample shown = picture.sample;
+        return shown.settled && shown.context == current.context &&
+                shown.nativeState.ready == current.nativeState.ready &&
+                (!requireCursor || shown.nativeState.cursor == current.nativeState.cursor);
+    }
+
+    private boolean pictureCurrent() {
+        return current != null && picture != null && layoutTransform >= 0 &&
+                picture.transform == layoutTransform && picture.sample.session == session &&
+                within(current.frame, picture.sample.frame, MAX_LAG);
     }
 
     public synchronized void show(Picture next) {
         if (!active || (next != null && next.sample.session != session)) return;
         if (next == null) {
-            if (picture != null) interrupt("picture-withdrawn");
+            withdrawnThrough = highestSwapped;
             picture = null;
+            interrupt("picture-withdrawn");
             return;
         }
-        if (picture != null && picture.sample.frame == next.sample.frame && picture.transform == next.transform) return;
-        picture = next;
-        if (reference != null && reference.result >= 0 && next.sample.frame >= reference.result &&
-                next.sample.frame - reference.result <= MAX_ACK && next.transform == layoutTransform &&
-                next.sample.nativeState.ready == (reference.from == Menu.ACTION ? Menu.MOVE : Menu.ACTION)) {
-            if (reference.from == Menu.ACTION) {
-                qualifiedAction = true;
-                qualifiedBusy |= reference.busyBack >= 0;
-            } else qualifiedMove = true;
-            note("reference accepted from=" + reference.from + " ready=" + reference.result
-                    + " swap=" + next.sample.frame + " enabled=" + qualified());
-            reference = null;
+        if (current == null) return;
+        expirePresentation(current.frame);
+        long frame = next.sample.frame;
+        if (frame <= withdrawnThrough || frame < highestSwapped ||
+                !within(current.frame, frame, MAX_LAG)) return;
+        if (picture != null && frame == picture.sample.frame && picture.transform == next.transform) return;
+        if (picture != null && picture.transform == layoutTransform && next.transform != layoutTransform) {
+            interrupt("presentation-transform");
         }
-        if (next.sample.frame != presentedFrame && !next.sample.nativeState.equals(lastPresented)) {
-            lastPresented = next.sample.nativeState;
-            presentedFrame = next.sample.frame;
-            Native state = next.sample.nativeState;
-            note("swap frame=" + presentedFrame + " timeNs=" + next.time + " layout=" + layout
-                    + " visible=" + state.visible + " ready=" + state.ready + " cursor=" + state.cursor);
+        picture = next;
+        highestSwapped = frame;
+        acknowledgeReference();
+        Sample shown = picture.sample;
+        if (lastLogged == null || lastLogged.context != shown.context || lastLogged.settled != shown.settled ||
+                !lastLogged.nativeState.equals(shown.nativeState)) {
+            lastLogged = shown;
+            Native state = shown.nativeState;
+            note("swap frame=" + shown.frame + " timeNs=" + next.time + " layout=" + layout
+                    + " visible=" + state.visible + " ready=" + state.ready + " cursor=" + state.cursor
+                    + " settled=" + shown.settled);
         }
     }
 
-    /** Points are already normalized and routed through the existing application ownership path. */
-    public synchronized void pointer(float x, float y, long transform, long time) {
-        if (probeArm != null || reference != null && reference.probe && reference.busyBack < 0) {
-            invalidate("reference-pointer");
+    private void acknowledgeReference() {
+        if (reference == null || reference.ready < 0 || !reference.surface.equals(surface()) ||
+                !readyPicture(true) || current.nativeState.ready != reference.destination() ||
+                !within(picture.sample.frame, reference.ready, MAX_ACK)) return;
+        if (reference.from == Menu.ACTION) {
+            qualifiedAction = true;
+            qualifiedBusy |= reference.busy >= 0;
+        } else qualifiedMove = true;
+        note("reference accepted from=" + reference.from + " ready=" + reference.ready
+                + " swap=" + picture.sample.frame + " enabled=" + qualified());
+        reference = null;
+    }
+
+    public synchronized void refuseReadinessProbe(String reason) {
+        note("reference probe refused reason=" + reason);
+    }
+
+    /** One explicit opt-in command. A newly discovered layout may wait for its matching swap. */
+    public synchronized void armReadinessProbe() {
+        if (!active || current == null || layoutTransform < 0) {
+            refuseReadinessProbe("scene-unavailable");
+        } else if (qualified() || probeArm != null || reference != null) {
+            refuseReadinessProbe("already-active-or-qualified");
+        } else if (current.frame < 0 || current.nativeState.ready != Menu.ACTION || current.nativeState.cursor != 0) {
+            refuseReadinessProbe("fight-not-ready");
+        } else {
+            retireGesture("reference-probe");
+            probeArm = new Arm(menuLease(), current.frame);
+            note("reference probe armed frame=" + current.frame);
         }
-        if (press != null && !press.target.equals(target(x, y, transform, press.action))) press = null;
-        if (intent != null && !intent.target.equals(target(x, y, transform, intent.action))) intent = null;
-        pointerX = x;
-        pointerY = y;
-        hoverTransform = transform;
-        hoverTime = time;
-        hover = true;
+    }
+
+    /** Points are already normalized and routed through the application ownership path. */
+    public synchronized void pointer(float x, float y, long transform, long time) {
+        if (probeArm != null || (reference != null && reference.probe && reference.busy < 0)) {
+            retireReference("reference-pointer");
+        }
+        if (press != null && !press.target.equals(target(x, y, transform, press.action, false))) press = null;
+        if (intent != null && !intent.target.equals(target(x, y, transform, intent.action, false))) intent = null;
+        Target target = target(x, y, transform, HOVER, false);
+        hover = qualified() && target != null ? new Intent(0, HOVER, target, time) : null;
     }
 
     public synchronized void down(long gesture, int button, float x, float y, long transform, long time) {
         invalidate("new-press");
         int action = button == 1 ? FIGHT : button == 2 ? BACK : -1;
         if (action < 0) return;
-        Target target = target(x, y, transform, action);
-        if (target != null && qualified() && compatible(target)) {
+        Target target = target(x, y, transform, action, true);
+        if (target != null && qualified()) {
             press = new Press(gesture, action, target);
             note("press gesture=" + gesture + " frame=" + current.frame + " timeNs=" + time);
         }
@@ -174,43 +238,44 @@ public final class NativeBattleMouse {
         Press previous = press;
         press = null;
         if (previous == null || previous.gesture != gesture ||
-                !previous.target.equals(target(x, y, transform, previous.action)) ||
-                !compatible(previous.target)) return;
+                !previous.target.equals(target(x, y, transform, previous.action, true))) return;
         intent = new Intent(gesture, previous.action, previous.target, time);
-        pointerX = x;
-        pointerY = y;
-        hoverTransform = transform;
-        hoverTime = time;
-        hover = true;
     }
 
     public synchronized Sample observe(long frame, Native state) {
         if (!active) return null;
-        if (current == null || current.nativeState.ready != state.ready || current.nativeState.slots != state.slots) {
+        expirePresentation(frame);
+        if (reference != null && reference.from == Menu.ACTION && reference.applied >= 0 &&
+                reference.busy < 0 && state.visible != Menu.ACTION) {
+            retireReference("left-action-before-busy-witness");
+        }
+        if (current == null || frame < current.frame || current.nativeState.visible != state.visible ||
+                current.nativeState.ready != state.ready || current.nativeState.slots != state.slots) {
             context++;
             press = null;
             intent = null;
-            if (pulse == null) hover = false;
+            hover = null;
+            // A confirmation can be acknowledged on its destination. It has no steering authority there.
+            if (pulse != null && pulse.expectedCursor >= 0) pulse = null;
+            if (probeArm != null) retireReference("armed-menu-changed");
             note("sample session=" + session + " context=" + context + " frame=" + frame
                     + " visible=" + state.visible + " ready=" + state.ready + " cursor=" + state.cursor);
         }
-        current = new Sample(session, context, frame, state);
+        current = new Sample(session, context, frame, state, true);
         return current;
     }
 
-    /**
-     * The only path supplying mouse bits. Call from the emulator thread after arbitration.
-     * The recheck is based on the native pre-frame sample and the most recent swapped picture.
-     */
-    public synchronized void commit(long before, int upstream, boolean idle, boolean referenceInput,
-                                    IntConsumer write) {
+    /** Supply no mouse bits when existing input or a hold owns this frame. */
+    public synchronized void commit(long before, int upstream, boolean idle, boolean referenceInput, IntConsumer write) {
         int mask = upstream;
         probeSubmitted = 0;
-        if (!active || current == null || before != current.frame) {
-            invalidate("sample-unavailable");
+        expirePresentation(before);
+        if (!active || current == null || before < 0 || before != current.frame) {
+            interrupt("sample-unavailable");
         } else if (!idle || upstream != 0) {
             invalidate("upstream-owner");
-            nativeReference(before, upstream, referenceInput, false);
+            if (!referenceInput) retireReference("upstream-reservation");
+            else nativeReference(before, upstream);
         } else if (qualified()) {
             mask = nextMask(before);
         } else {
@@ -229,24 +294,23 @@ public final class NativeBattleMouse {
 
     private int probeMask(long before) {
         if (probeArm != null) {
-            Sample armed = probeArm;
-            probeArm = null;
-            if (lastApplied != 0 || !pictureMatches() || before < armed.frame || before - armed.frame > MAX_LAG ||
-                    current.session != armed.session || current.context != armed.context ||
-                    current.nativeState.ready != Menu.ACTION || current.nativeState.cursor != 0) return 0;
-            nativeReference(before, A, true, true);
-            if (reference != null && reference.probe) {
-                note("reference probe A frame=" + before);
-                return A;
+            if (!probeArm.lease.equals(menuLease()) || !within(before, probeArm.frame, MAX_LAG)) {
+                retireReference("armed-picture-deadline");
+                return 0;
             }
+            if (lastApplied != 0 || !readyPicture(true) || current.nativeState.cursor != 0) return 0;
+            probeArm = null;
+            startReference(before, Menu.ACTION, A, true);
+            note("reference probe A frame=" + before);
+            return A;
         }
-        if (reference == null || !reference.probe || reference.busyBack >= 0 || reference.result >= 0) return 0;
-        if (before <= reference.before || before - reference.before > MAX_PROBE_BUSY) {
-            reference = null;
+        if (reference == null || !reference.probe || reference.busy >= 0 || reference.ready >= 0) return 0;
+        if (before - reference.before > MAX_PROBE_BUSY) {
+            retireReference("busy-swap-deadline");
             return 0;
         }
         if (lastApplied != 0 || !busyWitness()) return 0;
-        nativeReference(before, B, true, true);
+        submitBusy(before);
         note("reference probe busy B frame=" + before);
         return B;
     }
@@ -254,37 +318,48 @@ public final class NativeBattleMouse {
     private boolean qualified() { return qualifiedAction && qualifiedMove && qualifiedBusy; }
 
     private boolean busyWitness() {
-        return reference != null && reference.from == Menu.ACTION && reference.result < 0 &&
-                current.nativeState.ready == null && current.nativeState.visible == Menu.ACTION &&
-                picture != null && picture.transform == layoutTransform &&
-                picture.sample.frame <= current.frame && current.frame - picture.sample.frame <= MAX_LAG &&
-                picture.sample.nativeState.visible == current.nativeState.visible;
+        if (reference == null || reference.from != Menu.ACTION || reference.applied < 0 ||
+                reference.busy >= 0 || reference.ready >= 0 || !reference.surface.equals(surface()) ||
+                !within(current.frame, reference.before, MAX_PROBE_BUSY) || !pictureCurrent()) return false;
+        Sample shown = picture.sample;
+        return current.nativeState.ready == null && current.nativeState.visible == Menu.ACTION &&
+                shown.settled && shown.context == current.context && shown.frame >= reference.applied &&
+                shown.nativeState.ready == null && shown.nativeState.visible == Menu.ACTION;
     }
 
-    private void nativeReference(long before, int mask, boolean allowed, boolean probe) {
-        if (qualified() || !allowed || lastApplied < 0 || mask == 0 || (lastApplied & mask) != 0) return;
-        if (mask == B && busyWitness()) {
-            reference = new Reference(Menu.ACTION, reference.before, before + 1, -1, reference.probe);
-            note("reference busy dispatched frame=" + before + " mask=" + mask + " shown=" + picture.sample.frame);
+    private void startReference(long before, Menu from, int mask, boolean probe) {
+        reference = new Reference(surface(), from, before, NO_FRAME, NO_FRAME, NO_FRAME, probe);
+        note("reference dispatched frame=" + before + " mask=" + mask);
+    }
+
+    private void submitBusy(long before) {
+        reference = reference.withBusy(before + 1);
+        note("reference busy dispatched frame=" + before + " mask=" + B + " shown=" + picture.sample.frame);
+    }
+
+    private void nativeReference(long before, int mask) {
+        if (qualified() || lastApplied < 0 || mask == 0 || (lastApplied & mask) != 0) return;
+        if (mask == B && lastApplied == 0 && busyWitness()) {
+            submitBusy(before);
             return;
         }
-        reference = null;
-        if (lastApplied != 0 || !pictureMatches()) return;
-        if ((current.nativeState.ready == Menu.ACTION && current.nativeState.cursor == 0 && mask == A) ||
-                (current.nativeState.ready == Menu.MOVE && mask == B)) {
-            reference = new Reference(current.nativeState.ready, before, -1, -1, probe);
-            note("reference dispatched frame=" + before + " mask=" + mask);
+        if (lastApplied == 0 && readyPicture(true) &&
+                ((mask == A && current.nativeState.ready == Menu.ACTION && current.nativeState.cursor == 0) ||
+                 (mask == B && current.nativeState.ready == Menu.MOVE))) {
+            retireReference("new-ready-reference");
+            startReference(before, current.nativeState.ready, mask, false);
+        } else if (reference != null) {
+            retireReference("unexpected-reference-input");
         }
     }
 
-    /** Report the actual core counter before/after the step. Reused/held images never acknowledge an edge. */
+    /** Submitted edges survive work retirement. Only a verified forward step is applied evidence. */
     public synchronized Sample applied(long before, long after, Native state) {
         if (!active) return null;
         if (before < 0 || after < 0 || after != (before + 1) % 0x1_0000_0000L) {
-            invalidate("no-forward-step");
+            interrupt("no-forward-step");
             submitted = null;
             probeSubmitted = 0;
-            reference = null;
             lastApplied = -1;
             return null;
         }
@@ -304,63 +379,52 @@ public final class NativeBattleMouse {
             note("applied frame=" + after + " mask=0 release=true");
         }
         submitted = null;
-        if (reference != null) {
-            if (reference.before == before && edge) {
-                note("reference applied frame=" + after + " mask=" + dispatched);
-            }
-            if (reference.busyBack == after) {
-                if (edge && dispatched == B) note("reference busy applied frame=" + after + " mask=" + B);
-                else reference = new Reference(reference.from, reference.before, -1, -1, reference.probe);
-            }
-            updateReference(after, state);
-        }
+        if (reference != null) advanceReference(before, after, state, edge);
         Native previous = current == null ? Native.UNKNOWN : current.nativeState;
         Sample sample = observe(after, state);
-        // One settled forward frame covers BG and cursor changes across the VBlank/render boundary.
-        if (sample != null && state.ready != null && !state.equals(previous)) {
-            return new Sample(session, context, after, new Native(state.visible, null, -1, 0));
-        }
-        return sample;
+        // Ready results use one settled GBA frame to span changes near VBlank.
+        return state.ready != null && !state.equals(previous)
+                ? new Sample(session, context, after, state, false) : sample;
     }
 
-    private void updateReference(long after, Native state) {
-        if (after - reference.before > MAX_ACK || state.visible == null) {
-            reference = null;
-            return;
+    private void advanceReference(long before, long after, Native state, boolean edge) {
+        if (reference.before == before) {
+            int initial = reference.from == Menu.ACTION ? A : B;
+            if (!edge || dispatched != initial) {
+                retireReference("reference-edge-not-applied");
+                return;
+            }
+            reference = reference.withApplied(after);
+            note("reference applied frame=" + after + " mask=" + dispatched);
         }
-        if (reference.result >= 0) return;
-        if (state.ready != null && state.ready != reference.from) {
-            reference = new Reference(reference.from, reference.before, reference.busyBack, after, reference.probe);
+        if (reference.busy == after) {
+            if (!edge || dispatched != B) {
+                retireReference("busy-edge-not-applied");
+                return;
+            }
+            note("reference busy applied frame=" + after + " mask=" + B);
+        }
+        if (!within(after, reference.before, MAX_ACK) || state.visible == null) {
+            retireReference("reference-transition-unavailable");
+        } else if (reference.ready >= 0) {
+            if (state.ready != reference.destination()) retireReference("destination-changed-before-swap");
+        } else if (state.ready == reference.destination()) {
+            if (reference.from == Menu.ACTION && reference.busy < 0) retireReference("move-before-busy-witness");
+            else reference = reference.withReady(after);
         } else if (state.ready == reference.from) {
-            reference = null;
+            retireReference("reference-did-not-transition");
         }
     }
 
-    private boolean pictureMatches() {
-        if (picture == null || picture.transform != layoutTransform || current == null ||
-                current.nativeState.ready == null) return false;
-        Sample shown = picture.sample;
-        return shown.session == current.session && shown.context == current.context &&
-                shown.nativeState.ready == current.nativeState.ready &&
-                shown.nativeState.cursor == current.nativeState.cursor &&
-                shown.frame <= current.frame && current.frame - shown.frame <= MAX_LAG;
-    }
-
-    private boolean compatible(Target target) {
-        return pictureMatches() && target.session == session && target.context == context
-                && target.layout == layout && target.transform == picture.transform
-                && target.menu == current.nativeState.ready
-                && (target.slot < 0 || target.slot < current.nativeState.slots);
-    }
-
-    private Target target(float x, float y, long transform, int action) {
-        if (!pictureMatches() || picture.transform != transform || !Float.isFinite(x) || !Float.isFinite(y)) return null;
-        Menu menu = picture.sample.nativeState.ready;
-        int slot = slot(menu, x, y, picture.sample.nativeState.slots);
+    private Target target(float x, float y, long transform, int action, boolean requireCursor) {
+        if (!readyPicture(requireCursor) || picture.transform != transform || !Float.isFinite(x) ||
+                !Float.isFinite(y)) return null;
+        Menu menu = current.nativeState.ready;
+        int slot = slot(menu, x, y, current.nativeState.slots);
         if (action == BACK && (menu != Menu.MOVE || x < 0 || x >= 240 || y < 0 || y >= 160)) return null;
         if (action == FIGHT && (menu != Menu.ACTION || slot != 0)) return null;
         if (action == HOVER && slot < 0) return null;
-        return new Target(session, context, layout, transform, menu, action == BACK ? -1 : slot);
+        return new Target(menuLease(), action == BACK ? -1 : slot);
     }
 
     static int slot(Menu menu, float x, float y, int slots) {
@@ -374,20 +438,9 @@ public final class NativeBattleMouse {
 
     private int nextMask(long frame) {
         if (pulse != null && !settlePulse(frame)) return 0;
-        if (lastApplied != 0 || press != null) return 0;
-        Intent request = intent;
-        if (request == null && hover) {
-            Target target = target(pointerX, pointerY, hoverTransform, HOVER);
-            if (target != null) request = new Intent(0, HOVER, target, hoverTime);
-        }
-        if (request == null) return 0;
-        if (!compatible(request.target)) {
-            if (intent != null && (picture == null || current.context != intent.target.context ||
-                    picture.transform != intent.target.transform || current.frame - picture.sample.frame > MAX_LAG)) {
-                invalidate("target-unavailable");
-            }
-            return 0;
-        }
+        if (lastApplied != 0 || press != null || !readyPicture(true)) return 0;
+        Intent request = intent != null ? intent : hover;
+        if (request == null || !request.target.lease.equals(menuLease())) return 0;
         Native state = current.nativeState;
         int cursor = state.cursor;
         int key;
@@ -401,28 +454,29 @@ public final class NativeBattleMouse {
             case UP, DOWN -> cursor ^ 2;
             default -> -1;
         };
-        if (key == A || key == B) intent = null;
+        if (key == A || key == B) {
+            intent = null;
+            hover = null;
+        }
         pulse = new Pulse(request, key, expectedCursor, expectedMenu, frame);
         released = false;
-        appliedAt = -1;
+        appliedAt = NO_FRAME;
         return key;
     }
 
     private boolean settlePulse(long frame) {
-        if (appliedAt < 0 || frame - pulse.before > MAX_ACK) {
-            invalidate("pulse-timeout");
+        if (appliedAt < 0 || !within(frame, pulse.before, MAX_ACK)) {
+            retireGesture("pulse-timeout");
             return false;
         }
-        if (!released) return false;
+        if (!released || current.nativeState.ready == null) return false;
         Native state = current.nativeState;
-        if (state.ready == null) return false;
-        boolean direction = pulse.expectedCursor >= 0;
-        if (state.ready != pulse.expectedMenu || direction && (state.cursor != pulse.expectedCursor ||
-                current.context != pulse.intent.target.context)) {
-            invalidate("unexpected-ack");
+        if (state.ready != pulse.expectedMenu || (pulse.expectedCursor >= 0 &&
+                (state.cursor != pulse.expectedCursor || !pulse.intent.target.lease.equals(menuLease())))) {
+            retireGesture("unexpected-ack");
             return false;
         }
-        if (!pictureMatches()) return false;
+        if (!readyPicture(true) || picture.sample.frame < appliedAt) return false;
         note("ack mask=" + pulse.mask + " applied=" + appliedAt + " native=" + frame
                 + " shown=" + picture.sample.frame + " cursor=" + state.cursor
                 + " latencyNs=" + (picture.time - pulse.intent.time));

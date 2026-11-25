@@ -18,6 +18,7 @@ public final class NativeBattleMouseHarness {
         int cursor = 3, slots = 3, applied;
         boolean busy, hold, suppressDraw;
         Menu transition;
+        Sample completed;
         int waitBusy;
         Native nativeState() {
             return busy ? new Native(menu, null, -1, 0) :
@@ -58,10 +59,11 @@ public final class NativeBattleMouseHarness {
                 else if (applied == UP && (cursor & 2) != 0) cursor ^= 2;
                 else if (applied == DOWN && (cursor & 2) == 0 && (cursor ^ 2) < nativeState().slots()) cursor ^= 2;
             }
-            Sample sample = mouse.applied(before, frame, nativeState());
-            if (sample != null && !suppressDraw) {
-                mouse.show(new Picture(sample, transform, frame * 10));
-            }
+            completed = mouse.applied(before, frame, nativeState());
+            if (!suppressDraw) swap();
+        }
+        void swap() {
+            if (completed != null) mouse.show(new Picture(completed, transform, frame * 10));
         }
         void run(int frames) { for (int i = 0; i < frames; i++) step(0, true); }
         void hover(int x, int y) { mouse.pointer(x, y, transform, frame * 10); }
@@ -72,8 +74,10 @@ public final class NativeBattleMouseHarness {
         void reference() {
             cursor = 0;
             run(2);
+            waitBusy = 1;
             step(A, false);
-            step(B, false); // Actual ordinary B on the still-visible native transition.
+            step(0, true);
+            step(B, false); // Ordinary B on a swapped blocked ACTION sample.
             run(3);
             step(B, false);
             run(3);
@@ -310,7 +314,176 @@ public final class NativeBattleMouseHarness {
                 "cancelled probe still records its already applied A");
     }
 
+    private static int stalePresentedHistories() {
+        int histories = 0;
+        for (int gap = 0; gap <= 9; gap++) {
+            for (String boundary : List.of("none", "withdrawal", "zero-owner", "layout", "new-context", "new-session")) {
+                for (boolean delayedSwap : List.of(false, true)) {
+                    var core = new Core();
+                    core.reference();
+                    core.cursor = 1;
+                    core.run(2);
+                    var old = core.completed;
+                    core.masks.clear();
+                    core.click(1, 135, 128);
+                    core.suppressDraw = true;
+                    core.run(gap + 1); // The first LEFT advances without a replacement swap.
+                    switch (boundary) {
+                        case "none" -> {}
+                        case "withdrawal" -> core.mouse.show(null);
+                        case "zero-owner" -> core.step(0, false);
+                        case "layout" -> core.mouse.layout(++core.layout, ++core.transform);
+                        case "new-context" -> {
+                            core.busy = true; core.run(1);
+                            core.busy = false; core.run(1);
+                        }
+                        case "new-session" -> core.mouse.resetState();
+                        default -> throw new AssertionError(boundary);
+                    }
+                    if (delayedSwap) core.mouse.show(new Picture(old, core.transform, core.frame * 10));
+                    // A replacement can arrive immediately after the post-step that made the old lease stale.
+                    core.swap();
+                    core.suppressDraw = false;
+                    core.run(11);
+                    var powers = core.nonzero();
+                    boolean shouldConfirm = boundary.equals("none") && gap + 1 <= 6;
+                    check(powers.equals(shouldConfirm ? List.of(LEFT, A) : List.of(LEFT)),
+                            "post-UP gap " + gap + " " + boundary + " delayed=" + delayedSwap + " " + core.masks);
+                    if (!shouldConfirm) {
+                        if (boundary.equals("new-session")) core.reference();
+                        core.masks.clear();
+                        core.click(1, 135, 128);
+                        core.run(6);
+                        check(core.nonzero().equals(List.of(A)), "fresh click recovers after " + boundary);
+                    }
+                    histories++;
+                }
+            }
+        }
+        return histories;
+    }
+
+    private static void transitionDoesNotInheritHover() {
+        for (boolean moveDuringTransition : List.of(false, true)) {
+            var core = new Core();
+            core.reference();
+            core.hover(135, 128);
+            core.click(1, 135, 128); // This pixel also maps to the right MOVE slot.
+            core.run(1);
+            if (moveDuringTransition) core.hover(135, 128);
+            core.run(11);
+            check(core.masks.get(0) == A && core.masks.subList(1, 12).stream().allMatch(mask -> mask == 0),
+                    "stationary FIGHT cannot steer MOVE");
+            core.hover(135, 128);
+            core.run(8);
+            check(core.nonzero().equals(List.of(A, RIGHT)), "fresh MOVE hover still steers");
+            core.masks.clear();
+            core.click(2, 200, 128); // This pixel also maps to the right ACTION cell.
+            core.run(1);
+            if (moveDuringTransition) core.hover(200, 128);
+            core.run(11);
+            check(core.masks.get(0) == B && core.masks.subList(1, 12).stream().allMatch(mask -> mask == 0),
+                    "stationary Back cannot steer ACTION");
+            core.hover(200, 128);
+            core.run(8);
+            check(core.nonzero().equals(List.of(B, RIGHT)), "fresh ACTION hover still steers");
+        }
+    }
+
+    private static int probeSwapHistories() {
+        int histories = 0;
+        for (int gap = 0; gap <= 5; gap++) {
+            for (String picture : List.of("actual-busy", "old-ready", "unsettled-ready", "wrong-transform", "wrong-context")) {
+                var core = new Core();
+                core.cursor = 0;
+                core.run(2);
+                core.waitBusy = 5;
+                core.masks.clear();
+                var ready = core.completed;
+                core.mouse.armReadinessProbe();
+                core.suppressDraw = true;
+                core.run(1 + gap);
+                var live = core.completed;
+                switch (picture) {
+                    case "actual-busy" -> core.swap();
+                    case "old-ready" -> core.mouse.show(new Picture(ready, core.transform, core.frame * 10));
+                    case "unsettled-ready" -> core.mouse.show(new Picture(
+                            new Sample(live.session(), live.context(), live.frame(), ready.nativeState(), false),
+                            core.transform, core.frame * 10));
+                    case "wrong-transform" -> core.mouse.show(new Picture(live, core.transform + 1, core.frame * 10));
+                    case "wrong-context" -> core.mouse.show(new Picture(
+                            new Sample(live.session(), ready.context(), live.frame(), live.nativeState(), true),
+                            core.transform, core.frame * 10));
+                    default -> throw new AssertionError(picture);
+                }
+                core.run(5);
+                boolean busyBack = picture.equals("actual-busy") && gap <= 3;
+                check(core.nonzero().equals(busyBack ? List.of(A, B) : List.of(A)),
+                        "probe swap witness at gap " + gap + " " + picture + " " + core.masks);
+                core.suppressDraw = false;
+                core.run(3);
+                core.step(B, false);
+                core.run(4);
+                check(core.trace.stream().anyMatch(x -> x.contains("enabled=true")) == busyBack,
+                        "probe qualification depends on matched blocked swap");
+                histories++;
+            }
+        }
+        for (String discovery : List.of("swap-first", "layout-first", "no-matching-swap", "changed-layout", "withdrawn")) {
+            var core = new Core();
+            core.cursor = 0;
+            core.run(2);
+            core.masks.clear();
+            core.waitBusy = 2;
+            core.transform++;
+            if (discovery.equals("swap-first")) core.run(1);
+            core.mouse.layout(++core.layout, core.transform);
+            core.mouse.armReadinessProbe();
+            switch (discovery) {
+                case "layout-first" -> {
+                    core.suppressDraw = true;
+                    core.run(2);
+                    check(core.nonzero().isEmpty(), "arm waits rather than guessing");
+                    core.swap();
+                    core.suppressDraw = false;
+                }
+                case "no-matching-swap" -> {
+                    core.suppressDraw = true;
+                    core.run(8);
+                    core.suppressDraw = false;
+                }
+                case "changed-layout" -> core.resize();
+                case "withdrawn" -> core.mouse.show(null);
+                case "swap-first" -> {}
+                default -> throw new AssertionError(discovery);
+            }
+            core.run(9);
+            check(core.nonzero().equals(discovery.equals("swap-first") || discovery.equals("layout-first") ?
+                    List.of(A, B) : List.of()), "one F8 layout binding: " + discovery + " " + core.masks);
+            histories++;
+        }
+        var reopened = new Core();
+        reopened.cursor = 0;
+        reopened.run(2);
+        reopened.waitBusy = 5;
+        reopened.masks.clear();
+        reopened.mouse.armReadinessProbe();
+        reopened.run(1);
+        reopened.menu = Menu.MOVE;
+        reopened.run(1);
+        reopened.menu = Menu.ACTION;
+        reopened.run(8);
+        check(reopened.nonzero().equals(List.of(A)), "a new blocked ACTION cannot complete the previous reference");
+        reopened.step(B, false);
+        reopened.run(4);
+        check(reopened.trace.stream().noneMatch(x -> x.contains("enabled=true")), "transient menu return is unqualified");
+        return histories + 1;
+    }
+
     public static void main(String[] args) {
+        int histories = stalePresentedHistories() + probeSwapHistories();
+        transitionDoesNotInheritHover();
+        System.out.println("Lease histories passed: " + histories + "; both menu transitions require fresh motion");
         boundedAutomaticReference();
         probeSubmissionSurvivesCancellation();
         traceExceptionDoesNotAbortAnAppliedFrame();

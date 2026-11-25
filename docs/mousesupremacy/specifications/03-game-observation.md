@@ -35,6 +35,8 @@ At ROM start, observation is unknown until identity resolves. It can then become
 - Inspect small, bounded read sets on the emulator thread only while needed. Coalesce publication, avoid memory reads for individual pointer moves and measure polling cost, frame pacing and input latency against the pinned baseline. Use the fast observation path for display only where its measured freshness suffices.
 - Defer maps, field coordinate/occupancy semantics, native menus beyond the battle slice, and non-reference ROMs. The shared experimental reader and exact loaded identity profiles use source and fixture evidence. The ordinary-input comparison remains required independently for each scored ROM/core session.
 
+For the retail Gen III battle profiles, validate the ordinary return callback in `gMain.savedCallback` alongside the active callbacks and other readiness fields. The actual native ready value travels with presentation metadata. A ready snapshot waiting for one settled frame supplies neither ready acknowledgment nor a busy witness. The F8 busy comparison requires a real post-A forward frame with blocked ACTION and a matching subsequent swap in the still-live transition.
+
 ## Acceptance and verification
 
 | Test | Expected evidence |
