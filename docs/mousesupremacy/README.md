@@ -16,6 +16,7 @@ Based on PokeDaisy by Lidor Itzhari - https://github.com/lidor30/pokedaisy
 | [Compatibility](COMPATIBILITY.md) | Exact ROM profiles, capability matrix and adapter workflow |
 | [Roadmap](ROADMAP.md) | Dependencies, sequencing and battle proof gates |
 | [Development](DEVELOPMENT.md) | Build, packaging, Git, licensing and review practice |
+| [Local Android build](LOCAL_ANDROID_BUILD.md) | Windows setup, focused tests and exact-commit artifact retrieval |
 | [Testing](TESTING.md), [WSA probe](WSA_PROBE.md) and [battle scenario](test-scenarios/firered-battle.md) | Diagnostics, repeatable verification and expected evidence |
 
 The initialization brief sets the product direction. Approved requirements govern product intent, approved specs govern behavior, and approved decisions govern architecture. Use upstream source and captured runtime evidence to establish what already exists. Use acceptance criteria and executed tests to determine conformance. Implementation is evidence of actual behavior. Record discrepancies in project status and seek review of any change to approved behavior.
