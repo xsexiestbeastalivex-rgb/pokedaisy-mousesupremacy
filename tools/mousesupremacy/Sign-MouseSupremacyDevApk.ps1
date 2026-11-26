@@ -4,7 +4,8 @@ param(
     [Parameter(Mandatory)][ValidatePattern('^[a-fA-F0-9]{64}$')][string] $ExpectedOriginalSha256,
     [Parameter(Mandatory)][ValidatePattern('^[a-fA-F0-9]{40}$')][string] $SourceCommit,
     [Parameter(Mandatory)][string] $OutputApk,
-    [Parameter(Mandatory)][string] $BuildToolsDir
+    [Parameter(Mandatory)][string] $BuildToolsDir,
+    [switch] $UnsignedLocalExperiment
 )
 
 Set-StrictMode -Version Latest
@@ -52,7 +53,15 @@ if (!($manifest -cmatch "^package: name='com\.pokedaisy\.app\.dev' ") -or
     !($manifest -ceq "native-code: 'arm64-v8a' 'x86_64'")) {
     throw 'Expected the isolated dev package and both native ABIs.'
 }
-$ciSigner = Find-Signer $original
+$ciSigner = 'unsigned local experiment'
+if ($UnsignedLocalExperiment) {
+    $verification = @(& java '-jar' $apksigner 'verify' '--verbose' '--print-certs' $original 2>&1)
+    if ($LASTEXITCODE -eq 0 -or !($verification -match 'Missing META-INF/MANIFEST.MF')) {
+        throw 'The experimental input must be an unsigned APK.'
+    }
+} else {
+    $ciSigner = Find-Signer $original
+}
 Invoke-Checked $zipalign @('-c', '-p', '4', $original) | Out-Null
 Invoke-Checked python @($payloadCheck, $original, $original, $source) | Out-Null
 
@@ -118,7 +127,11 @@ try {
         "Original signer certificate SHA-256 $ciSigner",
         "Derived APK SHA-256 $(Get-Sha256 $staged)",
         "Local signer certificate SHA-256 $pin",
-        'Both APKs verified v2-only and passed zipalign -c -p 4'
+        $(if ($UnsignedLocalExperiment) {
+            'Unsigned local experimental input; output verified v2-only; both passed zipalign -c -p 4'
+        } else {
+            'Both APKs verified v2-only and passed zipalign -c -p 4'
+        })
     ) + $payload + @($manifest -match '^package:|^native-code:')
     $record | Set-Content -LiteralPath $stagedSidecar
     [IO.File]::Move($stagedSidecar, $sidecar)
