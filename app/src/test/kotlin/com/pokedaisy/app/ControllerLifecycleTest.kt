@@ -273,6 +273,18 @@ class ControllerLifecycleTest {
             Hotkeys.Event(Hotkeys.Action.FF_HOLD, false),
             Hotkeys.Event(Hotkeys.Action.QUICK_MENU, true)), p.hotkeys)
         assertEquals(0, p.frame())
+        p.motion(1)
+        assertEquals(Hotkeys.Event(Hotkeys.Action.QUICK_MENU, false), p.hotkeys.last())
+        assertEquals(4, p.hotkeys.size)
+
+        p.hotkeys.clear()
+        p.motion(1, held = true, left = true)
+        p.motion(1, held = true, left = true)
+        assertEquals(listOf(Hotkeys.Event(Hotkeys.Action.QUICK_MENU, true)), p.hotkeys)
+        p.motion(1, held = true) // The unadmitted L2 gets its own neutral.
+        p.motion(1, held = true, left = true)
+        assertEquals(listOf(Hotkeys.Event(Hotkeys.Action.QUICK_MENU, true),
+            Hotkeys.Event(Hotkeys.Action.FF_HOLD, true)), p.hotkeys)
     }
 
     @Test fun anInterruptedCaptureCannotSaveTheRemainderOfAChord() {

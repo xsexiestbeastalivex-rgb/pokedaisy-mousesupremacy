@@ -152,8 +152,9 @@ internal class AndroidHardwareInput(
         for (stick in sticks.values) {
             stick.needsCenteredStick = true
             stick.gameAxes = 0
-            // A callback can run between two trigger edges from one report. Neither may open on a held sample.
-            stick.needsNeutral = stick.needsNeutral or stick.reportedTriggers
+            // Quarantine any sibling press that had not reached its owner before this callback.
+            // An admitted trigger still owns its key until the real release.
+            stick.needsNeutral = stick.needsNeutral or (stick.reportedTriggers and stick.triggers.inv())
         }
         input.releaseAll()
     }
