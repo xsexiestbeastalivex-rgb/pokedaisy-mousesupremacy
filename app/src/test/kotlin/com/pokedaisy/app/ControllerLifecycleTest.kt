@@ -302,6 +302,149 @@ class ControllerLifecycleTest {
         assertEquals(listOf(listOf(SELECT)), saved)
     }
 
+    @Test fun triggerHandoffsPublishOneReportEvenWhenAFrameSamplesBetweenEdges() {
+        for (leftFirst in listOf(false, true)) {
+            val p = Port()
+            p.input.setControls(mapOf(L2 to CoreKey.START, R2 to CoreKey.START))
+            p.motion(1, held = !leftFirst, left = leftFirst)
+            val old = p.input.sampleMouseInput { it }
+            val interposed = mutableListOf<Int>()
+            p.hardware.joystick(1, InputDevice.SOURCE_JOYSTICK, MotionEvent.ACTION_MOVE, p.stamp++,
+                ControllerTriggers(if (leftFirst) 0f else .8f, if (leftFirst) .8f else 0f), 0) { key, down ->
+                p.hardware.playKey(key, down)
+                if (!down) p.hardware.finishRelease(key)
+                interposed += p.frame()
+                p.input.sampleMouseInput { sample ->
+                    p.input.withMouseInput(sample) { idle, manual -> assertFalse(idle); assertFalse(manual) }
+                }
+                // Retiring an unrelated device cannot publish the staged release.
+                p.hardware.deviceBoundary(77, p.stamp++, true)
+                assertEquals(CoreKey.START, p.frame())
+            }
+            // The unrelated boundary invalidates siblings; test coherent handoff without it separately below.
+            assertTrue(interposed.all { it == CoreKey.START })
+            p.input.withMouseInput(old) { idle, _ -> assertFalse(idle) }
+        }
+        for (leftFirst in listOf(false, true)) {
+            val p = Port()
+            p.input.setControls(mapOf(L2 to CoreKey.START, R2 to CoreKey.START))
+            p.motion(1, held = !leftFirst, left = leftFirst)
+            p.hardware.joystick(1, InputDevice.SOURCE_JOYSTICK, MotionEvent.ACTION_MOVE, p.stamp++,
+                ControllerTriggers(if (leftFirst) 0f else .8f, if (leftFirst) .8f else 0f), 0) { key, down ->
+                p.hardware.playKey(key, down)
+                if (!down) p.hardware.finishRelease(key)
+                assertEquals(CoreKey.START, p.frame())
+            }
+            assertEquals(CoreKey.START, p.frame())
+            p.motion(1)
+            assertEquals(0, p.frame())
+        }
+    }
+
+    @Test fun aSecondaryOwnerRetirementPreservesTheSurvivingDeferredSelect() {
+        for (detach in listOf(false, true)) {
+            val p = Port(Hotkeys.load(tmp.newFolder().toOkioPath()))
+            val a = p.stamp
+            p.digital(1, SELECT, true)
+            val b = p.stamp
+            p.digital(2, SELECT, true)
+            if (detach) p.device(2) else p.digital(2, SELECT, false, b, cancelled = true)
+            assertEquals(0, p.frame())
+            p.digital(1, SELECT, false, a)
+            assertEquals(List(GbaInput.TAP_FRAMES) { CoreKey.SELECT } + 0,
+                List(GbaInput.TAP_FRAMES + 1) { p.frame() })
+        }
+    }
+
+    @Test fun aTriggerAndHatHandoffShareTheOuterActivityReport() {
+        for (triggerFirst in listOf(false, true)) {
+            val p = Port()
+            p.input.setControls(mapOf(R2 to CoreKey.UP))
+            p.motion(1, held = triggerFirst, directions = if (triggerFirst) 0 else CoreKey.UP)
+            assertEquals(CoreKey.UP, p.frame())
+            p.input.withRoutedKeyReport {
+                val ready = p.hardware.joystick(1, InputDevice.SOURCE_JOYSTICK, MotionEvent.ACTION_MOVE,
+                    p.stamp++, ControllerTriggers(0f, if (triggerFirst) 0f else .8f),
+                    if (triggerFirst) CoreKey.UP else 0) { key, down ->
+                    p.hardware.playKey(key, down)
+                    if (!down) p.hardware.finishRelease(key)
+                    assertEquals(CoreKey.UP, p.frame())
+                }
+                assertTrue(ready)
+                assertEquals(CoreKey.UP, p.frame())
+                p.hardware.gameAxes(1, if (triggerFirst) CoreKey.UP else 0)
+                assertEquals(CoreKey.UP, p.frame())
+            }
+            assertEquals(CoreKey.UP, p.frame())
+            p.motion(1)
+            assertEquals(0, p.frame())
+        }
+    }
+
+    @Test fun routedReportKeepsIndependentSourcesAndDefersNewTaps() {
+        val p = Port()
+        p.input.withRoutedKeyReport {
+            p.input.onKey(BUTTON_A, true)
+            p.input.tap(SELECT)
+            p.input.setTouchBits(CoreKey.B)
+            assertEquals(CoreKey.B, p.frame())
+            p.input.sampleMouseInput { sample ->
+                p.input.withMouseInput(sample) { idle, manual -> assertFalse(idle); assertFalse(manual) }
+            }
+        }
+        assertEquals(CoreKey.A or CoreKey.B or CoreKey.SELECT, p.frame())
+        p.input.withRoutedKeyReport {
+            p.input.tap(SELECT)
+            p.input.releaseAll()
+        }
+        assertTrue(List(GbaInput.TAP_FRAMES + 1) { p.frame() }.all { it == 0 })
+    }
+
+    @Test fun neutralAndQuarantinedReportsDoNotWithdrawAnIdleMouseSample() {
+        val p = Port()
+        p.motion(1)
+        var idle = p.input.sampleMouseInput { it }
+        p.motion(1)
+        p.input.withMouseInput(idle) { open, _ -> assertTrue(open) }
+        p.motion(1, held = true)
+        p.motion(1, held = true, action = MotionEvent.ACTION_CANCEL)
+        idle = p.input.sampleMouseInput { it }
+        p.motion(1, held = true)
+        p.input.withMouseInput(idle) { open, _ -> assertTrue(open) }
+    }
+
+    @Test fun committedOldBitsCannotMakeANewChordPrefixBypassDeferral() {
+        val directory = tmp.newFolder().toOkioPath()
+        Hotkeys.releaseKey(directory, "BUTTON_L2")
+        Hotkeys.releaseKey(directory, "BUTTON_R2")
+        Hotkeys.setBinding(directory, Hotkeys.Action.SAVE_STATE, listOf(L2, R1))
+        val p = Port(Hotkeys.load(directory))
+        p.input.setControls(mapOf(R2 to CoreKey.A, L2 to CoreKey.SELECT, R1 to CoreKey.R))
+        p.motion(1, held = true)
+        assertEquals(CoreKey.A, p.frame())
+        p.motion(1, left = true)
+        assertEquals(0, p.frame())
+        p.motion(1)
+        assertEquals(CoreKey.SELECT, p.frame())
+    }
+
+    @Test fun reportClosingAModalRevokesItsSiblingAndDoesNotResurrectKeys() {
+        val p = Port()
+        val delivered = mutableListOf<Int>()
+        p.hardware.joystick(1, InputDevice.SOURCE_JOYSTICK, MotionEvent.ACTION_MOVE, p.stamp++,
+            ControllerTriggers(.8f, .8f), 0) { key, _ ->
+            delivered += key
+            p.hardware.clearGameButtons()
+        }
+        assertEquals(1, delivered.size)
+        assertEquals(0, p.frame())
+        p.motion(1, held = true, left = true)
+        assertEquals(0, p.frame())
+        p.motion(1)
+        p.motion(1, held = true)
+        assertEquals(CoreKey.A, p.frame())
+    }
+
     private companion object {
         const val R2 = KeyEvent.KEYCODE_BUTTON_R2
         const val L2 = KeyEvent.KEYCODE_BUTTON_L2

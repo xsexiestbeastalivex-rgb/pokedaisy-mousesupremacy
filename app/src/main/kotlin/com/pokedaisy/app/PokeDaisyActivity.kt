@@ -5936,7 +5936,11 @@ class PokeDaisyActivity : Activity() {
         if (event.isFromSource(InputDevice.SOURCE_JOYSTICK)) routeJoystick(event)
         else super.onGenericMotionEvent(event)
 
-    private fun routeJoystick(event: MotionEvent): Boolean {
+    private fun routeJoystick(event: MotionEvent): Boolean = input.withRoutedKeyReport {
+        routeJoystickReport(event)
+    }
+
+    private fun routeJoystickReport(event: MotionEvent): Boolean {
         val triggers = ControllerTriggers.read(event::getAxisValue)
         val axes = GbaInput.motionBits(event) ?: return false
         val ready = hardwareInput.joystick(event.deviceId, event.source, event.actionMasked,
@@ -5947,7 +5951,7 @@ class PokeDaisyActivity : Activity() {
                 if (cameraDevice == event.deviceId) resetCameraStick()
                 if (n3dsAxesDevice == event.deviceId) resetN3dsMotion()
             },
-            edge = ::triggerKey)
+            edge = { key, down -> triggerKey(event, key, down) })
         if (!ready || keyCapture.active) return true
         return onGameMotion(event, axes)
     }
@@ -5990,17 +5994,23 @@ class PokeDaisyActivity : Activity() {
         return true
     }
 
-    /** Analog and digital contributors share the logical key, including in the capture. */
-    private fun triggerKey(keyCode: Int, down: Boolean) {
+    private fun controllerInputOwner(): Int =
+        (if (::sidePanel.isInitialized && sidePanel.windowOpen) 1 else 0) or
+        (if (bottomFocus.value) 2 else 0) or (if (quickMenu.open) 4 else 0) or
+        (if (coopOverlay.takesKeys) 8 else 0) or (if (dsBattleMenu.mode != 0) 16 else 0) or
+        (if (keyCapture.active) 32 else 0) or
+        (if (::engine.isInitialized && engine.battleMenuHidden == BATTLE_MENU_ACTIONS) 64 else 0)
+
+    /** An analog edge enters the same admitted-key route as its digital representation. */
+    private fun triggerKey(report: MotionEvent, keyCode: Int, down: Boolean) {
+        val owner = controllerInputOwner()
         try {
-            if (keyCapture.onKey(keyCode, down) || !::engine.isInitialized) return
-            // The companion's window only admits trigger releases.
-            if (::sidePanel.isInitialized && sidePanel.windowOpen) {
-                if (!down) hardwareInput.hotkeyTakes(keyCode, false)
-                return
-            }
-            hardwareInput.playKey(keyCode, down)
+            routeOwnedKey(KeyEvent(report.downTime, report.eventTime,
+                if (down) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP, keyCode, 0, 0,
+                report.deviceId, 0, 0, report.source))
         } finally {
+            // Both opening and closing a modal revoke unadmitted siblings in this physical report.
+            if (owner != controllerInputOwner()) hardwareInput.clearGameButtons()
             if (!down) hardwareInput.finishRelease(keyCode)
         }
     }

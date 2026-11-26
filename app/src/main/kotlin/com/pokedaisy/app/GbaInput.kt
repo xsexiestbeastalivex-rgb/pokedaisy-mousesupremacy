@@ -36,13 +36,44 @@ class GbaInput : Hotkeys.GameKeys, ScriptInput {
         set(v) = synchronized(lock) { if (field != v) mouseInputSerial++; field = v; recompute() }
     @Volatile private var latchedHeld = 0
     private var mouseInputSerial = 0L
+    private var routedReportDepth = 0
+    private var publishedReportKeys: MutableMap<Int, Int>? = null
+    private var publishedReportTurbo: MutableMap<Int, Int>? = null
+    private var pendingReportTap: Int? = null
+    private var pendingReportAxes: Int? = null
+
+    /** Route a physical report without publishing a release/press handoff between its callbacks.
+     * Callbacks run outside [lock]: a hotkey can acquire the companion controller's lock. */
+    fun <T> withRoutedKeyReport(route: () -> T): T {
+        synchronized(lock) {
+            if (routedReportDepth++ == 0) {
+                publishedReportKeys = heldKeys.toMutableMap()
+                publishedReportTurbo = turboKeys.toMutableMap()
+            }
+        }
+        try {
+            return route()
+        } finally {
+            synchronized(lock) {
+                if (--routedReportDepth == 0) {
+                    publishedReportKeys = null
+                    publishedReportTurbo = null
+                    pendingReportTap?.let { tapBits = it; tapFrames = TAP_FRAMES }
+                    pendingReportTap = null
+                    pendingReportAxes?.let { hatBits = it }
+                    pendingReportAxes = null
+                    publishButtons()
+                }
+            }
+        }
+    }
 
     data class MouseInput(val serial: Long, val reserved: Boolean, val manual: Boolean)
 
     private fun mouseInputLocked() = MouseInput(mouseInputSerial,
-        heldKeys.isNotEmpty() || turboKeys.isNotEmpty() || hatBits != 0 || touchBits != 0 ||
+        routedReportDepth != 0 || heldKeys.isNotEmpty() || turboKeys.isNotEmpty() || hatBits != 0 || touchBits != 0 ||
             touchTurboBits != 0 || scriptExclusive || scriptBits != 0 || pressBits != 0 || tapFrames != 0,
-        (buttonBits or hatBits or touchBits) != 0 && !scriptExclusive && scriptBits == 0 &&
+        routedReportDepth == 0 && (buttonBits or hatBits or touchBits) != 0 && !scriptExclusive && scriptBits == 0 &&
             pressBits == 0 && tapFrames == 0 && turboMask == 0)
 
     fun <T> sampleMouseInput(read: (MouseInput) -> T): T = synchronized(lock) { read(mouseInputLocked()) }
@@ -97,7 +128,7 @@ class GbaInput : Hotkeys.GameKeys, ScriptInput {
         mouseInputSerial++
         if (bit and GbaControls.TURBO != 0) {
             turboKeys[keyCode] = bit and (GbaControls.TURBO or GbaControls.COMPANION).inv()
-            turboBits = turboKeys.values.fold(0) { acc, b -> acc or b }
+            updateButtons()
             return@synchronized true
         }
         // A TO COMPANION key with no button of its own is still the player's: it's taken, the game gets nothing.
@@ -112,18 +143,26 @@ class GbaInput : Hotkeys.GameKeys, ScriptInput {
         for (key in keys) {
             heldKeys.remove(key)
             turboKeys.remove(key)
+            publishedReportKeys?.remove(key)
+            publishedReportTurbo?.remove(key)
         }
-        if (axes != null) hatBits = axes
+        if (axes != null) { hatBits = axes; pendingReportAxes = null }
         if (clearTap) {
             tapFrames = 0
             tapBits = 0
+            pendingReportTap = null
         }
-        updateButtons()
+        // A boundary withdraws only already-published contributors. Staged sibling keys stay private.
+        publishButtons(publishedReportKeys ?: heldKeys, publishedReportTurbo ?: turboKeys)
     }
 
     private fun updateButtons() {
-        buttonBits = heldKeys.values.fold(0) { acc, bit -> acc or bit }
-        turboBits = turboKeys.values.fold(0) { acc, bit -> acc or bit }
+        if (routedReportDepth == 0) publishButtons()
+    }
+
+    private fun publishButtons(keys: Map<Int, Int> = heldKeys, turbo: Map<Int, Int> = turboKeys) {
+        buttonBits = keys.values.fold(0) { acc, bit -> acc or bit }
+        turboBits = turbo.values.fold(0) { acc, bit -> acc or bit }
         recompute()
     }
 
@@ -145,9 +184,10 @@ class GbaInput : Hotkeys.GameKeys, ScriptInput {
     @Volatile private var tapFrames = 0
 
     override fun tap(keyCode: Int) = synchronized(lock) {
-        tapBits = buttonFor(keyCode) ?: return@synchronized
+        val bits = buttonFor(keyCode) ?: return@synchronized
         mouseInputSerial++
-        tapFrames = TAP_FRAMES
+        if (routedReportDepth != 0) pendingReportTap = bits
+        else { tapBits = bits; tapFrames = TAP_FRAMES }
     }
 
     /** [tap]'s button for this frame, counting it down; the engine calls it once per game frame. None while a script
@@ -167,6 +207,10 @@ class GbaInput : Hotkeys.GameKeys, ScriptInput {
         tapBits = 0
         heldKeys.clear()
         turboKeys.clear()
+        publishedReportKeys?.clear()
+        publishedReportTurbo?.clear()
+        pendingReportTap = null
+        pendingReportAxes = null
         buttonBits = 0
         turboBits = 0
         hatBits = 0
@@ -215,8 +259,8 @@ class GbaInput : Hotkeys.GameKeys, ScriptInput {
     /** Fixed D-pad / analog directions, supplied by the platform's event adapter. */
     fun setAxes(bits: Int) = synchronized(lock) {
         if (hatBits != bits) mouseInputSerial++
-        hatBits = bits
-        recompute()
+        if (routedReportDepth != 0) pendingReportAxes = bits
+        else { hatBits = bits; recompute() }
     }
 
     // Synchronized: the touch controls' input windows set their bits from a thread of their own (TouchInputWindows), the

@@ -111,6 +111,7 @@ internal class AndroidHardwareInput(
             observe?.invoke(false)
             return false
         }
+        return input.withRoutedKeyReport {
         stick.sampledAt = time
         val held = (if (triggers.rightDown) RIGHT_TRIGGER else 0) or (if (triggers.leftDown) LEFT_TRIGGER else 0)
         stick.reportedTriggers = held
@@ -135,7 +136,8 @@ internal class AndroidHardwareInput(
                 if (add(key, owner, time)) edge(key, true)
             }
         }
-        return observed == epoch && !stick.needsCenteredStick
+        observed == epoch && !stick.needsCenteredStick
+        }
     }
 
     fun gameAxes(device: Int, bits: Int) {
@@ -231,11 +233,10 @@ internal class AndroidHardwareInput(
     private fun retire(ownedBy: (Int, Owner) -> Boolean, clearTap: Boolean = false) {
         epoch++
         val lost = mutableSetOf<Int>()
-        val affected = mutableSetOf<Int>()
         val iterator = keys.iterator()
         while (iterator.hasNext()) {
             val (key, owners) = iterator.next()
-            if (owners.keys.removeAll { ownedBy(key, it) }) affected += key
+            owners.keys.removeAll { ownedBy(key, it) }
             if (owners.isEmpty()) {
                 iterator.remove()
                 lost += key
@@ -244,7 +245,6 @@ internal class AndroidHardwareInput(
         input.retireRoutedKeys(lost, axes(), clearTap)
         val parser = hotkeys()
         if (parser != null) {
-            affected.forEach(parser::discardDeferredTap)
             lost.flatMap(parser::retireKey).forEach(notifyHotkey)
         }
         if (lost.isNotEmpty()) retireUiKeys(lost)
