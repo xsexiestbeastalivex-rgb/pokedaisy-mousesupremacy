@@ -56,7 +56,9 @@ class PerformanceGuardsTest {
         val activity = read("PokeDaisyActivity.kt")
         assertOrdered(lambda(activity, "private fun dispatchOwnedKey("),
             "hardwareInput.digital", "AndroidHardwareInput.KeyPhase.RELEASE", "hardwareInput.finishRelease")
-        assertOrdered(lambda(activity, "private fun routeJoystick("),
+        assertTrue("the entire joystick report must remain one input transaction",
+            "input.withRoutedKeyReport" in lambda(activity, "private fun routeJoystick("))
+        assertOrdered(lambda(activity, "private fun routeJoystickReport("),
             "hardwareInput.joystick", "controllerMotion", "onGameMotion")
         assertOrdered(lambda(activity, "override fun onPause() {"), "retireHardwareInput", "super.onPause()")
         assertTrue("both device loss and reconfiguration retire hardware",
