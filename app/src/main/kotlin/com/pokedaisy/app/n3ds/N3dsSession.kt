@@ -130,6 +130,22 @@ class N3dsSession(
      * pad's, [setStick]). */
     @Volatile private var hatBits = 0
 
+    fun retireMotion() {
+        stickX = 0f
+        stickY = 0f
+        lookX = 0f
+        lookY = 0f
+        hatBits = 0
+    }
+
+    fun motionCentered(event: MotionEvent): Boolean =
+        kotlin.math.abs(event.getAxisValue(MotionEvent.AXIS_X)) < STICK_DEAD &&
+            kotlin.math.abs(event.getAxisValue(MotionEvent.AXIS_Y)) < STICK_DEAD &&
+            kotlin.math.abs(event.getAxisValue(MotionEvent.AXIS_Z)) < STICK_DEAD &&
+            kotlin.math.abs(event.getAxisValue(MotionEvent.AXIS_RZ)) < STICK_DEAD &&
+            kotlin.math.abs(event.getAxisValue(MotionEvent.AXIS_RX)) < STICK_DEAD &&
+            kotlin.math.abs(event.getAxisValue(MotionEvent.AXIS_RY)) < STICK_DEAD
+
     /** The left stick as the circle pad, and the hat as the D-pad. */
     fun onMotion(event: MotionEvent) {
         fun dead(v: Float) = if (kotlin.math.abs(v) < STICK_DEAD) 0f else v

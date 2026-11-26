@@ -84,18 +84,47 @@ class GbaInput : Hotkeys.GameKeys, ScriptInput {
 
     /** @return true if the event was consumed. */
     override fun onKey(keyCode: Int, down: Boolean): Boolean = synchronized(lock) {
+        if (!down) {
+            val wasHeld = heldKeys.remove(keyCode) != null
+            val wasTurbo = turboKeys.remove(keyCode) != null
+            if (wasHeld || wasTurbo) {
+                mouseInputSerial++
+                updateButtons()
+            }
+            return@synchronized wasHeld || wasTurbo || keyToBit(keyCode) != null
+        }
         val bit = keyToBit(keyCode) ?: return@synchronized false
         mouseInputSerial++
         if (bit and GbaControls.TURBO != 0) {
-            if (down) turboKeys[keyCode] = bit and (GbaControls.TURBO or GbaControls.COMPANION).inv() else turboKeys.remove(keyCode)
+            turboKeys[keyCode] = bit and (GbaControls.TURBO or GbaControls.COMPANION).inv()
             turboBits = turboKeys.values.fold(0) { acc, b -> acc or b }
             return@synchronized true
         }
         // A TO COMPANION key with no button of its own is still the player's: it's taken, the game gets nothing.
-        if (down) heldKeys[keyCode] = bit and GbaControls.COMPANION.inv() else heldKeys.remove(keyCode)
-        buttonBits = heldKeys.values.fold(0) { acc, b -> acc or b }
-        recompute()
+        heldKeys[keyCode] = bit and GbaControls.COMPANION.inv()
+        updateButtons()
         true
+    }
+
+    /** Atomically withdraw the routed keys and joystick mask. Touch and script input keep their owners. */
+    fun retireRoutedKeys(keys: Set<Int>, axes: Int? = null, clearTap: Boolean = false) = synchronized(lock) {
+        mouseInputSerial++
+        for (key in keys) {
+            heldKeys.remove(key)
+            turboKeys.remove(key)
+        }
+        if (axes != null) hatBits = axes
+        if (clearTap) {
+            tapFrames = 0
+            tapBits = 0
+        }
+        updateButtons()
+    }
+
+    private fun updateButtons() {
+        buttonBits = heldKeys.values.fold(0) { acc, bit -> acc or bit }
+        turboBits = turboKeys.values.fold(0) { acc, bit -> acc or bit }
+        recompute()
     }
 
     /** The GBA button [keyCode] is bound to (D-pad, or the player's GAME BUTTONS; a TURBO key counts as its button),

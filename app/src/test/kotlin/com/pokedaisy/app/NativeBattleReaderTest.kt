@@ -1,5 +1,8 @@
 package com.pokedaisy.app
 
+import android.view.InputDevice
+import android.view.KeyEvent
+import android.view.MotionEvent
 import com.pokedaisy.app.companion.data.MemoryReader
 import com.pokedaisy.app.companion.data.BATTLE_INPUT_ACTION_SELECT
 import com.pokedaisy.app.companion.data.GameCalls
@@ -194,12 +197,50 @@ class NativeBattleReaderTest {
         }
     }
 
+    @Test fun retiringCapturedControllerInputAllowsOnlyAFreshNativeBack() {
+        for ((profile, directory) in listOf(
+            Profile.FIRERED_REV0 to "firered_randomized_rev0_battle",
+            Profile.EMERALD to "emerald_shiny_battle",
+        )) {
+            val rig = PhysicalInputRig(profile, directory, 512)
+            rig.qualify()
+            rig.press(1)
+            rig.release()
+            rig.neutral(5)
+            assertEquals(Menu.MOVE, rig.reader.sample().ready())
+            rig.masks.clear()
+            rig.trigger(held = true)
+            rig.press(2)
+            rig.neutral(1)
+            rig.trigger(held = true, action = MotionEvent.ACTION_CANCEL)
+            rig.release()
+            rig.neutral(5)
+            assertEquals(listOf(A), rig.edges())
+            rig.press(2)
+            // A held report from the quarantined joystick cannot invalidate this fresh click.
+            rig.trigger(held = true)
+            rig.release()
+            rig.neutral(5)
+            assertEquals(listOf(A, B), rig.edges())
+            assertEquals(Menu.ACTION, rig.reader.sample().ready())
+        }
+    }
+
     /** Real Android frame-input components with fixture-derived native menu snapshots. */
     private class PhysicalInputRig(private val profile: Profile, directory: String, dock: Int) {
         private val fixture = Fixture(directory)
         private val fade = profile.fade ?: FADE
         val reader = NativeBattleReader(fixture, profile, fade)
-        private val input = GbaInput()
+        private val input = GbaInput().apply { setControls(mapOf(KeyEvent.KEYCODE_BUTTON_R2 to A)) }
+        private val hardware = AndroidHardwareInput(input, { null }, {})
+
+        fun trigger(held: Boolean, action: Int = MotionEvent.ACTION_MOVE) {
+            hardware.joystick(1, InputDevice.SOURCE_JOYSTICK, action, frame, ControllerTriggers(0f, if (held) .8f else 0f), 0,
+                observe = { if (it) mouse.invalidate("upstream-controller") }) { key, down ->
+                hardware.playKey(key, down)
+                if (!down) hardware.finishRelease(key)
+            }
+        }
         private val trace = mutableListOf<String>()
         private val mouse = NativeBattleMouse { trace += it }
         val masks = mutableListOf<Int>()

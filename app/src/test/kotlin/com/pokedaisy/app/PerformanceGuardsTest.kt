@@ -52,6 +52,20 @@ class PerformanceGuardsTest {
     }
 
     @Test
+    fun hardwareTerminalsReachTheOwnershipPortBeforeOrdinaryRouting() {
+        val activity = read("PokeDaisyActivity.kt")
+        assertOrdered(lambda(activity, "private fun dispatchOwnedKey("),
+            "hardwareInput.digital", "AndroidHardwareInput.KeyPhase.RELEASE", "hardwareInput.finishRelease")
+        assertOrdered(lambda(activity, "private fun routeJoystick("),
+            "hardwareInput.joystick", "controllerMotion", "onGameMotion")
+        assertOrdered(lambda(activity, "override fun onPause() {"), "retireHardwareInput", "super.onPause()")
+        assertTrue("both device loss and reconfiguration retire hardware",
+            listOf("onInputDeviceRemoved", "onInputDeviceChanged").all { method ->
+                "retireInputDevice" in lambda(activity, "override fun $method(")
+            })
+    }
+
+    @Test
     fun theFlightPollAndForegroundActionsKeepTheirDifferentOwnersAtTheFrameBoundary() {
         val activity = read("PokeDaisyActivity.kt")
         val engine = read("EmulatorEngine.kt")

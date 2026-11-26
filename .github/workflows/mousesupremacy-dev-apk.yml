@@ -64,7 +64,8 @@ jobs:
             app/src/main/java/com/pokedaisy/app/mouse/NativeBattleMouse.java \
             tools/mousesupremacy/NativeBattleMouseHarness.java
           java -cp "$classes" com.pokedaisy.app.mouse.NativeBattleMouseHarness
-          ./gradlew :app:testDevUnitTest --tests '*ControllerTriggersTest' --tests '*NativeBattleReaderTest' \
+          ./gradlew :app:testDevUnitTest --tests '*ControllerTriggersTest' --tests '*ControllerLifecycleTest' \
+            --tests '*NativeBattleReaderTest' --tests '*HotkeyHoldBackTest' --tests '*HotkeyDsTriggersTest' --tests '*KeyCaptureTest' \
             --tests '*PerformanceGuardsTest' --tests '*BattleInputEvidenceTest' --tests '*BattleHudPointerTest' \
             --tests '*WideCameraTest' :shared:testDebugUnitTest --tests '*GameSessionTest' :app:assembleDev \
             -Pquick -Ppokedaisy.x86_64=true --stacktrace

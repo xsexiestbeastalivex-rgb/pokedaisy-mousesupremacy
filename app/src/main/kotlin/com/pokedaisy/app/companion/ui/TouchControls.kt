@@ -260,7 +260,7 @@ class TouchPressTracker(val pressed: TouchPressed) {
     private var dpadWas = 0
     private val lock = SynchronizedObject()
 
-    fun update(source: Int, hits: TouchHits) = synchronized(lock) {
+    fun update(source: Int, hits: TouchHits, published: ((Int, Int) -> Unit)? = null): Unit = synchronized(lock) {
         bySource[source] = hits
         val held = bySource[0].held or bySource[1].held
         val dpad = bySource[0].dpad or bySource[1].dpad
@@ -288,6 +288,7 @@ class TouchPressTracker(val pressed: TouchPressed) {
         if (gba != gbaWas || turbo != turboWas) {
             gbaWas = gba; turboWas = turbo
             input.onKeys(gba, turbo)
+            published?.invoke(gba, turbo)
         }
     }
 

@@ -79,6 +79,16 @@ class KeyCapture {
         onActiveChanged?.invoke(false)
     }
 
+    /** A vanished input can remove a candidate but must never complete a remap. */
+    fun retireKeys(keyCodes: Set<Int>) {
+        if (held.any { it in keyCodes }) {
+            swallowUp += held
+            held.clear()
+            keys = emptyList()
+        }
+        swallowUp.removeAll(keyCodes)
+    }
+
     /** A key event that's neither a press nor a release (Android's ACTION_MULTIPLE): the capture's while it waits. */
     fun onOtherKey(keyCode: Int): Boolean = active && keyCode !in SYSTEM_KEYS
 

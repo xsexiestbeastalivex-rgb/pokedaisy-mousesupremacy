@@ -17,15 +17,41 @@ internal class BattleInputEvidence(private val emit: (String) -> Unit, limit: In
     private var lastFrame: Frame? = null
     private var lastSession = Long.MIN_VALUE
     private var lastNativeFrame = -1L
-    private var lastController: Triple<Int?, Boolean, Boolean>? = null
+    private data class ControllerState(val action: Int, val bits: Int?, val left: Boolean, val right: Boolean, val admitted: Boolean)
+    private data class Controller(val alias: Int, var last: ControllerState? = null)
+    // These identities never leave the diagnostic process. Both the slots and the raw row stream are bounded.
+    private val controllers = mutableMapOf<Int, Controller>()
+    private var nextAlias = 0
 
     fun raw(message: String) = record(events, "raw", message)
 
-    fun controller(bits: Int?, left: Boolean, right: Boolean, event: Long, source: Int) {
-        val state = Triple(bits, left, right)
-        if (lastController == state) return
-        lastController = state
-        raw("channel=controller event=$event source=$source axes=$bits left=$left right=$right")
+    fun controller(deviceId: Int, action: Int, bits: Int?, left: Boolean, right: Boolean,
+        event: Long, source: Int, admitted: Boolean,
+    ) {
+        val controller = controllerSlot(deviceId) ?: return
+        val state = ControllerState(action, bits, left, right, admitted)
+        if (controller.last == state) return
+        controller.last = state
+        raw("channel=controller device=${controller.alias} action=$action event=$event source=$source " +
+            "axes=$bits left=$left right=$right takeover=$admitted")
+    }
+
+    private fun controllerSlot(deviceId: Int): Controller? {
+        controllers[deviceId]?.let { return it }
+        if (controllers.size >= 16) return null
+        return Controller(++nextAlias).also { controllers[deviceId] = it }
+    }
+
+    fun controllerAlias(deviceId: Int) = controllerSlot(deviceId)?.alias
+
+    fun controllerRetired(deviceId: Int, reason: String) {
+        val controller = controllers.remove(deviceId) ?: return
+        raw("channel=controller device=${controller.alias} terminal=$reason")
+    }
+
+    fun controllerBoundary(reason: String) {
+        controllers.values.forEach { it.last = null }
+        raw("channel=controller boundary=$reason")
     }
 
     fun work(message: String) = record(workRows, "field", message)

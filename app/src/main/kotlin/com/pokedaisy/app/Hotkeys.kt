@@ -108,6 +108,20 @@ class Hotkeys private constructor(
         return out
     }
 
+    /** Android routes only mapped keys and hotkey keys through its hardware ownership ledger. */
+    fun hasBinding(keyCode: Int): Boolean = chords.values.any { list -> list.any { keyCode in it } }
+
+    /** An interrupted owner cannot turn a deferred START/SELECT into a tap. */
+    fun discardDeferredTap(keyCode: Int) {
+        if (keyCode in heldBack) heldBack[keyCode] = true
+        toTap.remove(keyCode)
+    }
+
+    fun retireKey(keyCode: Int): List<Event> {
+        discardDeferredTap(keyCode)
+        return onKey(keyCode, false)
+    }
+
     /** A platform exposes only actions it can perform; unavailable chords must not consume game buttons. */
     fun forActions(actions: Collection<Action>): Hotkeys = Hotkeys(rawBindings.filterKeys { it in actions })
 
@@ -155,9 +169,16 @@ class Hotkeys private constructor(
      * ([GameKeys.tap]). Pressed while other game buttons are held, or with one pressed meanwhile, it goes through at once
      * ([letThrough]), so the games' own A + B + SELECT + START still works.
      */
-    fun gameKey(keyCode: Int, down: Boolean, input: GameKeys, handle: (Event) -> Unit): Boolean {
+    fun gameKey(keyCode: Int, down: Boolean, input: GameKeys, handle: (Event) -> Unit): Boolean =
+        gameKey(keyCode, down, input, handle) { true }
+
+    /** The Android host can change input ownership while handling a hotkey. */
+    fun gameKey(keyCode: Int, down: Boolean, input: GameKeys, handle: (Event) -> Unit, current: () -> Boolean): Boolean {
         if (down && keyCode in heldBack) return true   // its repeats
-        for (e in onKey(keyCode, down)) handle(e)
+        for (e in onKey(keyCode, down)) {
+            handle(e)
+            if (!current()) return true
+        }
         if (!down) {
             if (takeTap(keyCode)) { input.tap(keyCode); return true }
             return consumes(keyCode)

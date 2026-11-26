@@ -110,19 +110,33 @@ internal class MousePointerTrace private constructor(
 
     fun key(event: KeyEvent) {
         if (event.repeatCount != 0) return
-        ownershipEvidence?.raw("channel=key action=${event.action} event=${event.eventTime} " +
+        val evidence = ownershipEvidence ?: return
+        val controller = event.isFromSource(InputDevice.SOURCE_GAMEPAD) ||
+            event.isFromSource(InputDevice.SOURCE_DPAD) || event.device?.let(Controllers::isGamepad) == true
+        val alias = if (controller) evidence.controllerAlias(event.deviceId) else null
+        evidence.raw("channel=key device=$alias action=${event.action} event=${event.eventTime} " +
             "down=${event.downTime} code=${event.keyCode} source=${event.source} canceled=${event.isCanceled}")
     }
 
-    fun controllerMotion(event: MotionEvent, triggers: ControllerTriggers) {
-        val bits = GbaInput.motionBits(event)
-        ownershipEvidence?.controller(bits, triggers.leftDown, triggers.rightDown, event.eventTime, event.source)
-        if (active() && triggers.hasManualInput(bits)) invalidate("upstream-controller")
+    fun controllerMotion(event: MotionEvent, triggers: ControllerTriggers, takeOver: Boolean) {
+        ownershipEvidence?.controller(event.deviceId, event.actionMasked, GbaInput.motionBits(event),
+            triggers.leftDown, triggers.rightDown, event.eventTime, event.source, takeOver)
+        if (active() && takeOver) invalidate("upstream-controller")
     }
 
-    fun deviceChanged(id: Int) {
+    fun controllerBoundary(reason: String) {
+        ownershipEvidence?.controllerBoundary(reason)
+    }
+
+    fun deviceChanged(id: Int, reason: String = "device-changed") {
+        ownershipEvidence?.controllerRetired(id, reason)
         invalidate("device-change")
         devices.remove(id)?.let { input.detach(it.slot()) }
+    }
+
+    fun padMask(time: Long, source: Int, buttons: Int, keys: Int, turbo: Int) {
+        ownershipEvidence?.raw("channel=native-pad action=MOVE event=$time source=$source " +
+            "buttons=$buttons keys=$keys turbo=$turbo")
     }
 
     fun dispatch(

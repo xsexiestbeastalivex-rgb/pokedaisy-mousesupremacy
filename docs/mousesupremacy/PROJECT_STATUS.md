@@ -212,6 +212,14 @@ The accepted source and local derivation at `00d8be61befd197978e6526a2c4015e6dc7
 
 The local headless two-type batteries were saved through ordinary gameplay and rebooted on the exact FireRed rev 0 and Emerald ROMs. No RAM edits were used to prepare the saves. The host source/model checks and exact successor artifact are tracked on [PR #4](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/pull/4). [Targeted checkout](test-scenarios/firered-battle.md#targeted-physical-correction-recheck)
 
+### R2 controller lifecycle follow-up
+
+Independent review at `55f6d5a6333a743e97f490916c6158bed5935eec` accepted R1, R3 and R4 source and the exact APK derivation, while withholding source acceptance over a stuck remapped trigger. The predecessor reproductions showed held A after joystick CANCEL, an extra A edge when a second controller reported neutral, and a released A when analog R2 ended while digital R2 remained held. Both defects and the earlier non-joystick re-edge resulted from treating joystick samples and logical keys as if they had one physical owner. [Independent review](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/pull/4#pullrequestreview-6066941978) · [Headquarters assignment](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/pull/4#issuecomment-7178990483)
+
+The Android port now tracks device and source until each contribution ends. Joystick cancellation, removal, focus, pause, remapping and modal transitions are explicit. Terminal releases discard deferred taps. An interrupted capture discards its candidate chord. Held axes require recorded neutral after retirement, and overlapping digital, analog and touch input retain their own contributions. The game mask and foreground companion boundaries still use the existing arbiter. The bounded trace records controller action and device alias, including state-changing movement in the native pad. The historical Emerald A remains unattributed. [Ownership contract](specifications/02-input-ownership.md) · [WSA checkout](test-scenarios/firered-battle.md#targeted-physical-correction-recheck)
+
+The integration cases drive the Android controller port through the real hotkey and GBA input classes. They cover overlapping same-key holders, unrelated neutral reports, other inputs surviving retirement, hotkey-held releases, capture, remapping, focus, stale samples, and genuine neutral recovery. Ready native menu fixtures also verify that an old interrupted gesture cannot apply and a new one can. The exact build and verification are tracked on [PR #4](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/pull/4).
+
 ### Headquarters decision disposition
 
 The [owner-approved decision record](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/pull/4#issuecomment-7172711831) governs the current gameplay draft. Its source and verification entries are tracked separately.
