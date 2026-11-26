@@ -1,0 +1,9 @@
+# Exact English retail Emerald, SHA1 f3ae088181bf583e55daf962a92bb46f4f1d07b7.
+# pk_coop_emerald.h pins sTextPrinters and its 36-byte layout. The exact ROM's
+# TextPrinterWait/WithDownArrow literals independently identify gTextFlags
+# (autoScroll mask 4); RunTextPrinters identifies its disable byte and array.
+[record.EMERALD_NATIVE_BATTLE_TEXT]
+schema = 'gen3_native_battle_text'
+printers = 0x020201B0
+flags = 0x03003014
+disabled = 0x03002F84

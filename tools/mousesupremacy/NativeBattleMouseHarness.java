@@ -20,7 +20,13 @@ public final class NativeBattleMouseHarness {
         Menu transition;
         Sample completed;
         int waitBusy;
+        final int[] pp = {35, 25, 15};
+        int selectedMove = -1, messages = 2;
+        long page = 1;
+        boolean rejectMove;
         Native nativeState() {
+            if (menu == null) return Native.UNKNOWN;
+            if (menu == Menu.MESSAGE && !busy) return new Native(menu, menu, 0, 1, page);
             return busy ? new Native(menu, null, -1, 0) :
                     new Native(menu, menu, cursor, menu == Menu.ACTION ? 4 : slots);
         }
@@ -48,12 +54,24 @@ public final class NativeBattleMouseHarness {
                     transition = null;
                     busy = false;
                     cursor = 0;
+                    if (menu == Menu.MESSAGE) page++;
                 } else if (applied == A && menu == Menu.ACTION && cursor == 0) {
                     transition = Menu.MOVE;
                     busy = true;
                 } else if (applied == B && menu == Menu.MOVE) {
                     transition = Menu.ACTION;
                     busy = true;
+                } else if (applied == A && menu == Menu.MOVE) {
+                    selectedMove = cursor;
+                    if (!rejectMove) pp[cursor]--;
+                    menu = Menu.BUSY;
+                    transition = Menu.MESSAGE;
+                    waitBusy = 24; // Longer than the input acknowledgment deadline.
+                    busy = true;
+                } else if (applied == A && menu == Menu.MESSAGE) {
+                    busy = true;
+                    if (--messages == 0) menu = null;
+                    else { transition = Menu.MESSAGE; waitBusy = 1; }
                 } else if (applied == LEFT && (cursor & 1) != 0) cursor ^= 1;
                 else if (applied == RIGHT && (cursor & 1) == 0 && (cursor ^ 1) < nativeState().slots()) cursor ^= 1;
                 else if (applied == UP && (cursor & 2) != 0) cursor ^= 2;
@@ -119,9 +137,6 @@ public final class NativeBattleMouseHarness {
             core.hover(20, 143);
             core.run(12);
             check(core.cursor == 2, "three-slot diagonal through valid cells");
-            core.click(1, 20, 143);
-            core.run(6);
-            check(core.menu == Menu.MOVE, "left click does not commit a move");
             core.click(2, 210, 110);
             core.up(210, 110);
             core.run(12);
@@ -492,6 +507,49 @@ public final class NativeBattleMouseHarness {
         interruptions();
         unavailableAndUnapplied();
         afterCommitCancellation();
+        moveAndMessageCompletion();
         System.out.println("Native battle fake core: two widths, nine interruptions, unqualified/no-step cases, bounded reference and throwing trace passed");
+    }
+
+    private static void moveAndMessageCompletion() {
+        for (boolean rejected : new boolean[]{false, true}) {
+            var core = new Core();
+            core.reference();
+            core.click(1, 135, 128);
+            core.run(8);
+            core.masks.clear();
+            core.rejectMove = rejected;
+            core.click(1, 20, 143); // Non-default third move, selected by ordinary DOWN.
+            core.up(20, 143);
+            core.run(40);
+            check(core.selectedMove == 2, "click reaches the named move");
+            check(core.pp[0] == 35 && core.pp[1] == 25 && core.pp[2] == (rejected ? 15 : 14), "only chosen PP changes");
+            check(core.nonzero().stream().filter(x -> x == A).count() == 1, "one move A, including rejection");
+            check(core.menu == Menu.MESSAGE, "long animation reaches a native message");
+            core.masks.clear();
+            core.hover(20, 143);
+            core.run(3);
+            core.click(2, 20, 143);
+            core.click(1, 20, 50);
+            core.run(3);
+            check(core.nonzero().isEmpty(), "message hover, right click and outside click do nothing");
+            core.down(1, 20, 143);
+            core.page++;
+            core.run(2);
+            core.up(20, 143);
+            core.run(3);
+            check(core.nonzero().isEmpty(), "old-page release cannot advance a new page");
+            core.click(1, 20, 143);
+            core.step(0, true);
+            core.up(20, 143);
+            core.click(1, 20, 143); // A printing/busy frame cannot admit the next page's click.
+            core.run(10);
+            check(core.nonzero().equals(List.of(A)), "one intentional page advance");
+            core.click(1, 20, 143);
+            core.run(10);
+            check(core.menu == null, "second fresh click completes the battle messages");
+            check(core.nonzero().equals(List.of(A, A)), "no automatic message follow-up");
+        }
+        System.out.println("Move/message models: named PP, native rejection, long busy, page leases and return to field passed");
     }
 }

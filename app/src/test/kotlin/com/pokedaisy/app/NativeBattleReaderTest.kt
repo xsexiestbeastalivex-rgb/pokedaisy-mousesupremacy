@@ -126,6 +126,47 @@ class NativeBattleReaderTest {
         }
     }
 
+    @Test fun emeraldMessageReadinessRequiresTheVisibleUserWaitAndExactPrinter() {
+        val profile = Profile.EMERALD
+        val text = checkNotNull(profile.text)
+        val fixture = Fixture("emerald_shiny_battle")
+        val reader = NativeBattleReader(fixture, profile, checkNotNull(profile.fade))
+        fixture.setWord(profile.config.battleTypeFlags, 4)
+        fixture.setWord(profile.config.gMain + 8, profile.ordinaryReturn)
+        fixture.set(profile.fade, *IntArray(10))
+        fixture.set(profile.bg0y - 2, 0, 0, 0, 0)
+        fixture.set(text.printers, *IntArray(36))
+        fixture.setWord(text.printers, 0x02022E00)
+        fixture.set(text.printers + 5, 1)
+        fixture.set(text.printers + 27, 1)
+        fixture.set(text.flags, 0)
+        fixture.set(text.disabled, 0)
+        for (state in 0..8) {
+            fixture.set(text.printers + 28, state)
+            assertEquals("printer state $state", if (state in 1..3) Menu.MESSAGE else null, reader.sample().ready())
+        }
+        fixture.set(text.printers + 28, 1)
+        val ready = reader.sample()
+        assertEquals(Native(Menu.MESSAGE, Menu.MESSAGE, 0, 1, (0x02022E00L shl 8) or 1), ready)
+        val exclusions = listOf(text.flags to 4, text.disabled to 1, text.printers + 27 to 0,
+            text.printers + 4 to 1, text.printers + 5 to 0)
+        for ((address, value) in exclusions) {
+            val old = fixture.readCoreMemory(address, 1)[0].toInt() and 255
+            fixture.set(address, value)
+            assertNull("exclusion at $address", reader.sample().ready())
+            fixture.set(address, old)
+        }
+        fixture.setWord(text.printers + 16, 0x08001235)
+        assertNull(reader.sample().ready())
+        fixture.setWord(text.printers + 16, 0)
+        fixture.setWord(text.printers, 0)
+        assertNull(reader.sample().ready())
+        fixture.setWord(text.printers, 0x02022E01)
+        assertTrue(ready.page() != reader.sample().page())
+        fixture.shortAt = text.printers
+        assertEquals(Native.UNKNOWN, reader.sample())
+    }
+
     @Test fun ordinarySetupRequiresTheExpectedThumbStoreAndReturnLiteral() {
         val profile = Profile.EMERALD
         val address = profile.ordinarySetup

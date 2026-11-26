@@ -6,6 +6,8 @@ import com.pokedaisy.app.companion.data.NATIVE_EMERALD_RETAIL
 import com.pokedaisy.app.companion.data.NATIVE_FIRERED_REV0_RETAIL
 import com.pokedaisy.app.companion.data.NATIVE_FIRERED_REV1
 import com.pokedaisy.app.companion.data.NativeConfig
+import com.pokedaisy.app.companion.data.NativeBattleTextConfig
+import com.pokedaisy.app.companion.data.EMERALD_NATIVE_BATTLE_TEXT
 import com.pokedaisy.app.mouse.NativeBattleMouse.Menu
 import com.pokedaisy.app.mouse.NativeBattleMouse.Native
 import java.io.File
@@ -25,6 +27,7 @@ internal class NativeBattleReader(
         val bg0y: Long, val exec: Long, val commandBuffer: Long,
         val main1: Long, val main2: Long, val vblank: Long,
         val ordinarySetup: Long, val ordinaryReturn: Long, val fade: Long? = null,
+        val text: NativeBattleTextConfig? = null,
     ) {
         FIRERED_REV0("BPRE", 0, "41cb23d8dccc8ebd7c649cd8fbb58eeace6e2fdc", NATIVE_FIRERED_REV0_RETAIL,
             0x02022976L, 0x02023BC8L, 0x02022BC4L, 0x080123E5L, 0x08011101L, 0x080116F5L,
@@ -35,7 +38,7 @@ internal class NativeBattleReader(
         // Byte-matched Emerald symbols from pk_coop_emerald.h and the upstream RAM fixture.
         EMERALD("BPEE", 0, "f3ae088181bf583e55daf962a92bb46f4f1d07b7", NATIVE_EMERALD_RETAIL,
             0x02022E16L, 0x02024068L, 0x02023064L, 0x08039EF1L, 0x08038421L, 0x08038A29L,
-            0x080B06CAL, 0x080B0AF9L, 0x02037FD4L),
+            0x080B06CAL, 0x080B0AF9L, 0x02037FD4L, EMERALD_NATIVE_BATTLE_TEXT),
     }
 
     fun frame(): Long = runCatching { read.u32(cfg.gMainVblankCtr) }.getOrDefault(-1)
@@ -57,10 +60,13 @@ internal class NativeBattleReader(
         val visible = when (read.u16(profile.bg0y)) {
             160 -> Menu.ACTION
             320 -> Menu.MOVE
+            0 -> if (profile.text != null) Menu.BUSY else null
             else -> null
         }
         val blocked = Native(visible, null, -1, 0)
-        if (visible == null || read.u32(profile.exec) != 1L) return blocked
+        if (visible == null || faded()) return blocked
+        if (visible == Menu.BUSY) return readMessage(blocked)
+        if (read.u32(profile.exec) != 1L) return blocked
         val expectedHandler = if (visible == Menu.ACTION) cfg.handleInputChooseAction else cfg.handleInputChooseMove
         val controllers = read.bytes(cfg.battlerControllerFuncs, 16)
         if (controllers.le32(0) != expectedHandler + 1 ||
@@ -71,15 +77,33 @@ internal class NativeBattleReader(
             }) return blocked
         val command = read.bytes(profile.commandBuffer, 12)
         if (command[0].byte() != (if (visible == Menu.ACTION) 18 else 20)) return blocked
+        val cursor = read.u8(if (visible == Menu.ACTION) cfg.actionCursor else cfg.moveCursor)
+        val slots = if (visible == Menu.ACTION) 4 else moveSlots(command)
+        return if (cursor in 0 until slots) Native(visible, visible, cursor, slots) else blocked
+    }
+
+    private fun faded(): Boolean {
         val fade = read.bytes(paletteFade, 10)
         val amount = fade.le16(4) ushr 6 and 31
         val targetAmount = fade.le16(4) ushr 11 and 31
         val activeFade = fade[7].byte() and 0x80 != 0
         // MOVE hover schedules a zero-intensity OBJ refresh. Block real fades and nonnormal active modes.
-        if (amount != 0 || activeFade && (targetAmount != 0 || fade[9].byte() and 3 != 0)) return blocked
-        val cursor = read.u8(if (visible == Menu.ACTION) cfg.actionCursor else cfg.moveCursor)
-        val slots = if (visible == Menu.ACTION) 4 else moveSlots(command)
-        return if (cursor in 0 until slots) Native(visible, visible, cursor, slots) else blocked
+        return amount != 0 || activeFade && (targetAmount != 0 || fade[9].byte() and 3 != 0)
+    }
+
+    private fun readMessage(blocked: Native): Native {
+        val text = profile.text ?: return blocked
+        if (read.u8(text.disabled) != 0 || read.u8(text.flags) and 4 != 0) return blocked
+        // Emerald's B_WIN_MSG printer. WAIT, CLEAR and SCROLL_START consume a fresh A/B;
+        // printing, scrolling, sound waits and timed pauses do not authorize a click.
+        val printer = read.bytes(text.printers, 36)
+        val state = printer[28].byte()
+        val character = printer.le32(0)
+        val readable = character in 0x02000000L..0x0203FFFFL ||
+            character in 0x03000000L..0x03007FFFL || character in 0x08000000L..0x08FFFFFFL
+        if (printer[27].byte() != 1 || printer[4].byte() != 0 || printer[5].byte() != 1 ||
+            printer.le32(16) != 0L || state !in 1..3 || !readable) return blocked
+        return Native(Menu.MESSAGE, Menu.MESSAGE, 0, 1, (character shl 8) or state.toLong())
     }
 
     private fun moveSlots(command: ByteArray): Int {

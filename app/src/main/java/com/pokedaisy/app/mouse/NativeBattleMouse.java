@@ -5,13 +5,14 @@ import java.util.function.IntConsumer;
 /** Battle input, live leases and completed-frame evidence share the final-key-write monitor. */
 public final class NativeBattleMouse {
     public static final int A = 1, B = 2, RIGHT = 16, LEFT = 32, UP = 64, DOWN = 128;
-    private static final int HOVER = 0, FIGHT = 1, BACK = 2;
+    private static final int HOVER = 0, CONFIRM = 1, BACK = 2, ADVANCE = 3;
     private static final int MAX_LAG = 6, MAX_ACK = 16, MAX_PROBE_BUSY = 4;
     private static final long NO_FRAME = -1;
 
-    public enum Menu { ACTION, MOVE }
+    public enum Menu { ACTION, MOVE, MESSAGE, BUSY }
 
-    public record Native(Menu visible, Menu ready, int cursor, int slots) {
+    public record Native(Menu visible, Menu ready, int cursor, int slots, long page) {
+        public Native(Menu visible, Menu ready, int cursor, int slots) { this(visible, ready, cursor, slots, 0); }
         public static final Native UNKNOWN = new Native(null, null, -1, 0);
     }
 
@@ -53,6 +54,7 @@ public final class NativeBattleMouse {
     private boolean released;
     private int lastApplied, dispatched, probeSubmitted;
     private long probeBefore;
+    private long confirmedContext = -1;
 
     public NativeBattleMouse(Trace trace) { this.trace = trace; }
 
@@ -78,6 +80,7 @@ public final class NativeBattleMouse {
         lastApplied = -1;
         appliedAt = NO_FRAME;
         released = false;
+        confirmedContext = -1;
         interrupt("session");
     }
 
@@ -225,10 +228,11 @@ public final class NativeBattleMouse {
 
     public synchronized void down(long gesture, int button, float x, float y, long transform, long time) {
         invalidate("new-press");
-        int action = button == 1 ? FIGHT : button == 2 ? BACK : -1;
+        int action = button == 1 ? (current != null && current.nativeState.ready == Menu.MESSAGE ? ADVANCE : CONFIRM)
+                : button == 2 ? BACK : -1;
         if (action < 0) return;
         Target target = target(x, y, transform, action, true);
-        if (target != null && qualified()) {
+        if (target != null && qualified() && current.context != confirmedContext) {
             press = new Press(gesture, action, target);
             note("press gesture=" + gesture + " frame=" + current.frame + " timeNs=" + time);
         }
@@ -250,7 +254,8 @@ public final class NativeBattleMouse {
             retireReference("left-action-before-busy-witness");
         }
         if (current == null || frame < current.frame || current.nativeState.visible != state.visible ||
-                current.nativeState.ready != state.ready || current.nativeState.slots != state.slots) {
+                current.nativeState.ready != state.ready || current.nativeState.slots != state.slots ||
+                current.nativeState.page != state.page) {
             context++;
             press = null;
             intent = null;
@@ -371,6 +376,7 @@ public final class NativeBattleMouse {
         probeSubmitted = 0;
         if (submitted != null && submitted.before == before) {
             appliedAt = after;
+            if (edge && dispatched == A) confirmedContext = submitted.intent.target.lease.context;
             note("applied frame=" + after + " mask=" + dispatched + " edge=" + edge
                     + " gesture=" + submitted.intent.gesture);
             if (!edge) invalidate("no-new-edge");
@@ -420,14 +426,19 @@ public final class NativeBattleMouse {
         if (!readyPicture(requireCursor) || picture.transform != transform || !Float.isFinite(x) ||
                 !Float.isFinite(y)) return null;
         Menu menu = current.nativeState.ready;
+        if (menu == Menu.MESSAGE) {
+            return action == ADVANCE && x >= 0 && x < 240 && y >= 112 && y < 160
+                    ? new Target(menuLease(), 0) : null;
+        }
         int slot = slot(menu, x, y, current.nativeState.slots);
         if (action == BACK && (menu != Menu.MOVE || x < 0 || x >= 240 || y < 0 || y >= 160)) return null;
-        if (action == FIGHT && (menu != Menu.ACTION || slot != 0)) return null;
+        if (action == CONFIRM && !((menu == Menu.ACTION && slot == 0) || (menu == Menu.MOVE && slot >= 0))) return null;
         if (action == HOVER && slot < 0) return null;
         return new Target(menuLease(), action == BACK ? -1 : slot);
     }
 
     static int slot(Menu menu, float x, float y, int slots) {
+        if (menu != Menu.ACTION && menu != Menu.MOVE) return -1;
         int left = menu == Menu.ACTION ? 128 : 8;
         int middle = menu == Menu.ACTION ? 184 : 80;
         int right = menu == Menu.ACTION ? 232 : 152;
@@ -446,9 +457,10 @@ public final class NativeBattleMouse {
         int key;
         if (request.action == BACK) key = B;
         else if (cursor != request.target.slot) key = direction(cursor, request.target.slot, state.slots);
-        else key = request.action == FIGHT ? A : 0;
+        else key = request.action == CONFIRM || request.action == ADVANCE ? A : 0;
         if (key == 0) return 0;
-        Menu expectedMenu = key == A ? Menu.MOVE : key == B ? Menu.ACTION : state.ready;
+        Menu expectedMenu = key == A ? (state.ready == Menu.ACTION ? Menu.MOVE : null)
+                : key == B ? Menu.ACTION : state.ready;
         int expectedCursor = switch (key) {
             case LEFT, RIGHT -> cursor ^ 1;
             case UP, DOWN -> cursor ^ 2;
@@ -469,14 +481,23 @@ public final class NativeBattleMouse {
             retireGesture("pulse-timeout");
             return false;
         }
-        if (!released || current.nativeState.ready == null) return false;
+        if (!released) return false;
         Native state = current.nativeState;
+        if (pulse.expectedMenu == null) {
+            // MOVE confirmation and message advancement consume their source context. Long
+            // animations and native rejection text need no speculative destination or follow-up A.
+            if (current.context == pulse.intent.target.lease.context || state.visible == null ||
+                    !pictureCurrent() || !picture.sample.settled || picture.sample.context != current.context ||
+                    !picture.sample.nativeState.equals(state) || picture.sample.frame < appliedAt) return false;
+        } else {
+        if (state.ready == null) return false;
         if (state.ready != pulse.expectedMenu || (pulse.expectedCursor >= 0 &&
                 (state.cursor != pulse.expectedCursor || !pulse.intent.target.lease.equals(menuLease())))) {
             retireGesture("unexpected-ack");
             return false;
         }
         if (!readyPicture(true) || picture.sample.frame < appliedAt) return false;
+        }
         note("ack mask=" + pulse.mask + " applied=" + appliedAt + " native=" + frame
                 + " shown=" + picture.sample.frame + " cursor=" + state.cursor
                 + " latencyNs=" + (picture.time - pulse.intent.time));

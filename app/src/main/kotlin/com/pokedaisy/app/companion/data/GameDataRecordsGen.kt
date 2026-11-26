@@ -2412,6 +2412,20 @@ val FLIGHT_LEAFGREEN_REV1: FlightFns by lazy {
     )
 }
 
+// ---- gamedata/gen3/records/native_battle_text.toml ----
+
+// Exact English retail Emerald, SHA1 f3ae088181bf583e55daf962a92bb46f4f1d07b7.
+// pk_coop_emerald.h pins sTextPrinters and its 36-byte layout. The exact ROM's
+// TextPrinterWait/WithDownArrow literals independently identify gTextFlags
+// (autoScroll mask 4); RunTextPrinters identifies its disable byte and array.
+val EMERALD_NATIVE_BATTLE_TEXT: NativeBattleTextConfig by lazy {
+    NativeBattleTextConfig(
+        printers = 0x020201B0L,
+        flags = 0x03003014L,
+        disabled = 0x03002F84L,
+    )
+}
+
 // ---- gamedata/gen3/records/ported.toml ----
 
 // FLASH (Flash.kt): retail Ruby rev 1 and rev 2 (the same addresses and code), pret's pokeruby built as ruby_rev1 /
