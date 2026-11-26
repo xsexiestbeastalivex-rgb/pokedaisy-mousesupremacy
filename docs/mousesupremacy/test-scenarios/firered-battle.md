@@ -2,6 +2,8 @@
 
 **MS-BATTLE-001 and MS-OBS-001 · Proposed · Runtime evidence pending**
 
+For local exploratory runs use the [local experimental APK procedure](../DEVELOPMENT.md#local-experimental-apks). The stricter accepted-artifact requirements below govern scored integration acceptance, not each authorized build/play/fix iteration.
+
 [Headquarters D1–D5](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/pull/4#issuecomment-7172711831) extends the first reference to FireRed rev 0/rev 1 and retail Emerald. Start with the owner's exact FireRed rev 0 and collect an independent result for the other profiles when available.
 
 ## Inputs and provenance

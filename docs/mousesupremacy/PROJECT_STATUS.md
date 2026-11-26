@@ -1,5 +1,15 @@
 # Initialization report and project status
 
+## Headquarters III: local continuation, 2026-11-25
+
+The owner assigned continuous implementation, incremental compilation and WSA debugging to the existing local Codex session. Headquarters III retains technical direction and milestone assessment. [Local experimental APKs](DEVELOPMENT.md#local-experimental-apks) supersede CI-only prerequisites for authorized experiments; accepted artifacts, independent acceptance and owner merge/release approval remain integration gates. Reuse the [qualified lane](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/issues/5#issuecomment-7180330080), signer and fixtures.
+
+Local, unpushed source checkpoint `50dd97a90b68b7ae55604d27badaff54982ed1d9` preserves the in-progress Emerald move/message increment, including controller correction `ad810ad6`. Twenty JUnit controller/trigger tests passed on JDK 17 with host Compose/file-I/O shims and Android constants. The Java harness passed 156 lease histories, existing routing cases and the added move/message models. These are host/model results. The new reader tests and complete Android source assembly are pending. Internal controller review found and corrected report/axis coherence, chord-admission and idle-report regressions; actual Activity modal integration still needs focused Android/runtime evidence. The gameplay delta has design review, not final acceptance.
+
+No successor APK, installation or WSA gameplay is claimed. Local Codex continues this checkpoint in the established build lane without reimplementation. The bounded deliverable is one ordinary Emerald wild battle completed using mouse move selection and verified message advancement, with chosen-move PP and return-to-field evidence. Report that result and stop; broader field navigation and menus remain later work.
+
+## Earlier integration ledger
+
 **Milestone** · Phase 0 passed independent review and owner approval. [PR #1](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/pull/1) merged at `4a1779f7e6609c689ac9deee3db75d9573a1bfd8`. Headquarters retained the existing WSA host as the priority. The Phase 1B.5 physical qualification stands. The [Phase 1B.7 independent review](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/pull/2#pullrequestreview-6053377810) closed standalone F2. Owner-approved [PR #2](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/pull/2) merged at `e2f3ee2056f848765f8169018acf3b9d2028e52e`. All six inherited jobs passed on [run 45560119230, attempt 2](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/actions/runs/45560119230/attempts/2).
 
 ## Baseline and evidence ledger

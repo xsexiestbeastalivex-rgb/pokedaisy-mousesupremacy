@@ -2,7 +2,7 @@
 
 ## Development environments
 
-The published Codex Cloud configuration described in the brief has Gradle 8.10.2, Temurin 21 and a prewarmed Compose Desktop build. Use that environment for companion UI when available. The selected Linux Work checkout is a separate environment. Its verified or blocked runs are in [project status](PROJECT_STATUS.md). Use Android SDK or GitHub Actions for native APK compilation. Use a physical WSA session for the target pointer proof.
+Headquarters III in Work owns requirements, architecture and milestone assessment. The existing local Codex session owns the continuous implementation/build/play/fix loop. Reuse the qualified Windows build lane, persistent SDK/Gradle caches, pinned submodules, signer, disposable fixtures and diagnostics. Its measured qualification is [issue #5](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/issues/5#issuecomment-7180330080); the [existing runbook](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/blob/6b8921a9d886aa9b994d2fa71734fdd1c9c996a8/docs/mousesupremacy/LOCAL_ANDROID_BUILD.md) contains the launchers and recovery. No new environment qualification is required. Work's access varies by session; verify actual access before promising local execution or task dispatch.
 
 Follow [upstream build notes](../DEVELOPMENT.md#build) and [testing instructions](../../CLAUDE.md#testing-quick-by-default-full-runs-only-with-the-users-ok). The workflow in [upstream CI](../../.github/workflows/ci.yml) uses JDK 17, the Gradle 8.10.2 wrapper, SDK platform 34, NDK `28.2.13676358`, CMake `3.22.1` and pinned recursive submodules. For its default app configuration, omit optional Azahar and keep the required pinned mGBA, rcheevos, melonDS, DSperate and BananaDS dependency paths. The initial WSA build uses `-Ppokedaisy.x86_64=true`. Android API 26 is the app minimum.
 
@@ -15,6 +15,23 @@ sdkmanager --install 'platforms;android-34' 'build-tools;34.0.0' 'ndk;28.2.13676
 ```
 
 ## Exact-commit development APKs
+
+### Local experimental APKs
+
+Owner-approved workflow clarification, 2026-11-25. This procedure supersedes older instructions requiring accepted CI artifacts or independent source/artifact acceptance before every local physical experiment, including the local-build runbook's CI-only WSA sentence. Historical evidence and rejected-candidate dispositions remain attributed to their original builds. Final integration retains its acceptance gates.
+
+1. Continue the existing local checkout. Import an existing local checkpoint or bundle instead of recreating changes. Preserve unrelated work. Use a local commit and a matching embedded source stamp for a runnable experiment; local commits require no push. Keep focused test, package and runtime commands separate, reuse warm caches and avoid `clean`.
+2. Build only the changed, bounded gameplay increment. Record full local source SHA, exact command, APK SHA-256, variant and ABI. Label the result **experimental local build**, distinct from CI and independently accepted evidence.
+3. Reuse the existing owner-controlled dev signer and backup. The qualified launcher currently outputs an unsigned APK; the existing signing helper expects a signed CI input. Local Codex should add a narrowly scoped unsigned-local-input path or equivalent signing invocation, retaining input digest/source/package checks, alignment, secure credential handling, the pinned output signer and unchanged payload verification. Never generate a replacement key or weaken the CI-derivation path.
+4. Before installation verify `com.pokedaisy.app.dev`, the target ABI, embedded local SHA, alignment and the pinned signer against the installed dev app. Preserve the existing dev data, fixture backup and separate official app. Obtain scoped owner installation authorization when it is absent; reuse an existing authorization only while its package, signer, target and isolated test scope still apply. A signer mismatch stops the update without uninstalling.
+5. After the authorized same-signer update, compare the installed APK bytes to the signed local APK and pass the existing [resolved ROM/save/backup gate](#pre-launch-save-isolation-gate). Reuse established isolation evidence while rechecking the actual paths and fixture hashes. Do not repeat platform qualification or migration without a relevant change.
+6. Run the named gameplay scenario using existing input, frame/PP observations, screenshots and bounded diagnostics. No build competes with the actual gameplay capture. Stop on unexpected input or isolation failure. Keep private ROMs, saves, keys and raw traces local. Summarize the result and remaining limits, then stop when the assigned deliverable is achieved.
+
+At integration, freeze the source, review the relevant delta, run applicable hosted checks and obtain the accepted exact-source artifact and physical evidence. Merge/release still needs owner approval. Routine edits, local tests and experimental packages need no intermediate push, workflow dispatch or independent acceptance cycle.
+
+After a second failure in the same class or approximately 30 minutes of repeated churn, stop blind retries, preserve the checkpoint and diagnose the smallest discriminating cause. Continue only affected work with a concrete recovery; do not automatically expand into an infrastructure audit, new environment or another full build/review cycle.
+
+### Integration artifacts
 
 Use the [recorded baseline artifact](PROJECT_STATUS.md) for documentation or pure-logic work when it can answer the check. Record the artifact's SHA separately from the working branch SHA. For a change that needs to run on a device, get a build of the exact reviewed source commit.
 

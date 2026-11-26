@@ -2,6 +2,8 @@
 
 Use the smallest evidence layer that exercises the requirement. Record app SHA, core revision and ABI, ROM fingerprint or synthetic fixture ID, host/Android build, settings, scenario ID, start state type, result and expected or observed ledger events. Report skipped assertions explicitly. A passed test with an absent ROM or no executed assertion provides no ROM evidence.
 
+Local exploratory WSA testing follows [local experimental APKs](DEVELOPMENT.md#local-experimental-apks). An accepted CI artifact and independent acceptance are integration requirements; they are not prerequisites for each authorized local debugging iteration. Package, source, signer, installed identity and resolved save-isolation checks still apply.
+
 | Layer | Reuse and what to prove |
 | --- | --- |
 | Pure unit | Kotlin target resolution, inverse transforms, capability gates, navigation, triggers and cancellation. Use generated or sanitized fixtures. |
