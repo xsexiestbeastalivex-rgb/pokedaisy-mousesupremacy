@@ -143,7 +143,8 @@ class TouchControlsView(context: Context) : FrameLayout(context) {
     private val tracker = com.pokedaisy.app.companion.ui.TouchPressTracker(com.pokedaisy.app.companion.ui.TouchPressed())
     private var hitModel: com.pokedaisy.app.companion.ui.TouchHitModel? = null
     private var inputWindows: TouchInputWindows? = null
-    internal var tracePadPointer: ((Int, Long) -> Unit)? = null
+    internal var tracePadPointer: ((Int, Long, Int, Int) -> Unit)? = null
+    internal var tracePadMask: ((Long, Int, Int, Int, Int) -> Unit)? = null
     internal val pointerPadHeld: Boolean get() = inputWindows?.pointerContactHeld == true
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
@@ -178,6 +179,7 @@ class TouchControlsView(context: Context) : FrameLayout(context) {
         if (!show && inputWindows == null) return
         val windows = inputWindows ?: TouchInputWindows(this, tracker).also {
             it.onPointerCallback = tracePadPointer
+            it.onPointerMask = tracePadMask
             inputWindows = it
         }
         windows.sync(hitModel.takeIf { show }, show && inputAllowed(), if (show) inputExclusions() else emptyList())

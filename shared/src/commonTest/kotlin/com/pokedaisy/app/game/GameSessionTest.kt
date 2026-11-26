@@ -83,6 +83,33 @@ class GameSessionTest {
         repeat(20) { s.observeField(true, -1, BATTLE_INPUT_PARTY_OPEN, false) }; assertFalse(s.onField)
     }
 
+    @Test fun fieldMaintenanceCoalescesAndNeverOccupiesTheForegroundQueue() {
+        val s = session()
+        repeat(20) { s.observeField(true, 0, BATTLE_INPUT_NONE, false) }
+        assertTrue(s.requestFieldMaintenance { assertSame(calls, it); events += "maintenance" })
+        repeat(16) {
+            assertFalse(s.requestFieldMaintenance { error("duplicate") })
+            repeat(30) { s.serviceFieldMaintenance(liveField = false) }
+            assertFalse(s.hasQueuedFieldWork())
+        }
+        safe = false
+        repeat(130) { s.serviceFieldMaintenance(liveField = true) }
+        assertTrue(events.isEmpty())
+        safe = true
+        s.requestField(false) { _, _ -> events += "foreground" }
+        assertTrue(s.hasQueuedFieldWork())
+        s.serviceFieldMaintenance(liveField = true)
+        assertTrue(events.isEmpty())
+        s.serviceField(true, true)
+        s.serviceFieldMaintenance(liveField = true)
+        assertEquals(listOf("foreground", "maintenance"), events)
+        s.requestFieldMaintenance { error("closed game") }
+        s.reset()
+        repeat(20) { s.observeField(true, 0, BATTLE_INPUT_NONE, false) }
+        s.serviceFieldMaintenance(liveField = true)
+        assertEquals(2, events.size)
+    }
+
     @Test fun closingInsideACallbackDropsTheRestAndResetCannotLeakOldWork() {
         val s = session()
         repeat(20) { s.observeField(true, 0, BATTLE_INPUT_NONE, false) }

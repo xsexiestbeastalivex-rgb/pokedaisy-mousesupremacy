@@ -28,7 +28,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,6 +44,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
@@ -96,7 +99,11 @@ fun BattleButtons(
     initialWindow: BattleButtonsWindow? = null,
     /** BATTLE STYLE: GEN 5 draws the buttons and lists in Black / White's look (Gen 1 / 2 keep their own). */
     style: com.pokedaisy.app.companion.BattleStyle = com.pokedaisy.app.companion.BattleStyle.GEN4,
+    pointerRegions: BattleButtonsPointerRegions? = null,
 ) {
+    if (pointerRegions != null) DisposableEffect(pointerRegions) {
+        onDispose { pointerRegions.publish(null) }
+    }
     var window by remember { mutableStateOf(initialWindow) }
     val state = snapshot.battleInputState
     // The buttons slide off to the right while they're not wanted - no battle, FIGHT's / POKéMON's list open, the game's
@@ -117,18 +124,41 @@ fun BattleButtons(
         if (!shown || state != BATTLE_INPUT_ACTION_SELECT && !(window == BattleButtonsWindow.MOVES && state == BATTLE_INPUT_MOVE_SELECT)) window = null
     }
     LaunchedEffect(window) { onWindow(window != null) }
-    if (!shown && slide == 1f && movesIn == 0f && partyIn == 0f) return
+    if (!shown && slide == 1f && movesIn == 0f && partyIn == 0f) {
+        if (pointerRegions != null) SideEffect { pointerRegions.publish { emptyList() } }
+        return
+    }
     val busy = rememberBattleInputBusy(battleInput)
     val m = rememberGbaTextMetrics(1f)
     val u = m.u
     val density = LocalDensity.current
     val gen5 = style == com.pokedaisy.app.companion.BattleStyle.GEN5 && !gen1Buttons
-    BoxWithConstraints(modifier.fillMaxSize()) {
+    val pointerHost = if (pointerRegions != null) remember { PlacedHudRegion() } else null
+    BoxWithConstraints(modifier.fillMaxSize().then(pointerHost?.modifier ?: Modifier)) {
         val boxW = with(density) { maxWidth.toPx() }
         val boxH = with(density) { maxHeight.toPx() }
         val right = core?.right ?: ((boxW + boxH * 1.5f) / 2)
         val room = with(density) { (boxW - right).toDp() }
-        if (room < u * MIN_ROOM) return@BoxWithConstraints
+        if (room < u * MIN_ROOM) {
+            if (pointerRegions != null) SideEffect {
+                pointerRegions.publish { pointerHost?.bounds()?.let { emptyList() } }
+            }
+            return@BoxWithConstraints
+        }
+        val pointerControls = if (pointerRegions != null) remember { List(3) { PlacedHudRegion() } } else null
+        if (pointerRegions != null && pointerControls != null) {
+            val modal = window != null || movesIn > 0f || partyIn > 0f
+            val minimumTarget = LocalViewConfiguration.current.minimumTouchTargetSize
+            val minimumPx = with(density) { Size(minimumTarget.width.toPx(), minimumTarget.height.toPx()) }
+            SideEffect {
+                pointerRegions.publish {
+                    if (modal || pointerHost?.bounds() == null) null
+                    else pointerControls.map { it.bounds(minimumPx) }.let { bounds ->
+                        if (bounds.any { it == null }) null else bounds.filterNotNull()
+                    }
+                }
+            }
+        }
         val gap = u * 5
         val top = with(density) { clearTop.toDp() } + u * 3
         val actions = state == BATTLE_INPUT_ACTION_SELECT
@@ -157,15 +187,16 @@ fun BattleButtons(
                 ActionButton(
                     tr("FIGHT"), fightIcon, { HudSpecies(active?.iconAsset, fightIcon) }, FightRed, FightRedDark, m, h, gen5, Gen5Word.FIGHT,
                     enabled = enabled && moves.isNotEmpty() && (actions || state == BATTLE_INPUT_MOVE_SELECT), pressesGame = false, edge = u * EDGE,
+                    modifier = pointerControls?.get(0)?.modifier ?: Modifier,
                 ) { window = BattleButtonsWindow.MOVES }
                 ActionButton(
                     tr("POKéMON"), u * 16, { PixelArt(PixelIcons.pokeBall, POKE_BALL, Modifier.size(u * 16)) }, MonGreen, MonGreenDark, m, h, gen5, Gen5Word.POKEMON,
                     enabled = enabled && actions && battleInput?.canSwitch == true && snapshot.party.size > 1,
-                    pressesGame = false, edge = u * EDGE,
+                    pressesGame = false, edge = u * EDGE, modifier = pointerControls?.get(1)?.modifier ?: Modifier,
                 ) { window = BattleButtonsWindow.PARTY }
                 ActionButton(
                     tr("RUN"), u * 16, { PixelArt(RUN_ICON, RUN_COLORS, Modifier.size(u * 16)) }, RunBlue, RunBlueDark, m, h, gen5, Gen5Word.RUN,
-                    enabled = enabled && actions && wild, edge = u * EDGE,
+                    enabled = enabled && actions && wild, edge = u * EDGE, modifier = pointerControls?.get(2)?.modifier ?: Modifier,
                 ) { battleInput?.selectAction(3) }
             }
         }
@@ -223,15 +254,16 @@ private fun ActionButton(
     enabled: Boolean, pressesGame: Boolean = true,
     /** How far it runs past the screen's right edge: its content keeps clear of that part. */
     edge: Dp = 0.dp,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     val u = m.u
     if (gen5) {
-        Gen5ActionButton(word, label, iconH, icon, u, h, WORD_ROOM, enabled, pressesGame, edge, onClick = onClick)
+        Gen5ActionButton(word, label, iconH, icon, u, h, WORD_ROOM, enabled, pressesGame, edge, modifier, onClick = onClick)
         return
     }
     PlatinumButton(
-        fill = fill, frame = frame, modifier = Modifier.fillMaxWidth().height(h),
+        fill = fill, frame = frame, modifier = modifier.fillMaxWidth().height(h),
         enabled = enabled, pressesGame = pressesGame,
         // Clear of the bevel's side bands.
         contentPadding = PaddingValues(start = u * 3, end = u * 3 + edge, top = u * 2, bottom = u * 2), onClick = onClick,

@@ -4,7 +4,7 @@
 
 ## Purpose and scope
 
-Provide read-only observations of the running game that are fresh enough to decide whether a specific mouse interaction is safe. The first consumer is the native battle slice for exact retail English FireRed rev 1. The observation layer interprets state owned by the emulated game. The action executor owns input decisions, and the renderer owns visibility and projection. This system excludes a second simulation, broad memory access for test clients, and universal menu detection.
+Provide read-only observations of the running game that are fresh enough to decide whether a specific mouse interaction is safe. The first consumer is the native battle slice for exact English FireRed rev 0/rev 1 and retail Emerald, with each readiness profile independently qualified. The observation layer interprets state owned by the emulated game. The action executor owns input decisions, and the renderer owns visibility and projection. This system excludes a second simulation, broad memory access for test clients, and universal menu detection.
 
 ## Existing upstream functionality
 
@@ -33,7 +33,9 @@ At ROM start, observation is unknown until identity resolves. It can then become
 - Depends on [ROM capability management](11-compatibility.md) and the existing core frame/input boundary. Publishes observations for [semantic interaction](05-semantic-interaction.md), [native battle](06-native-battle.md) and [diagnostics](13-diagnostics.md).
 - Derive menu presence and press readiness separately. A handler may be recognized during a fade. Test disabled or empty move slots, overlays, rapidly changing context, and menu exit followed by immediate re-entry.
 - Inspect small, bounded read sets on the emulator thread only while needed. Coalesce publication, avoid memory reads for individual pointer moves and measure polling cost, frame pacing and input latency against the pinned baseline. Use the fast observation path for display only where its measured freshness suffices.
-- Defer maps, field coordinate/occupancy semantics, native menus beyond the battle slice, and non-reference ROMs. Readiness signals, exact frame-capture ordering and observation cadence remain pending Phase 1 evidence.
+- Defer maps, field coordinate/occupancy semantics, native menus beyond the battle slice, and non-reference ROMs. The shared experimental reader and exact loaded identity profiles use source and fixture evidence. The ordinary-input comparison remains required independently for each scored ROM/core session.
+
+For the retail Gen III battle profiles, validate the ordinary return callback in `gMain.savedCallback` alongside the active callbacks and other readiness fields. The actual native ready value travels with presentation metadata. A ready snapshot waiting for one settled frame supplies neither ready acknowledgment nor a busy witness. The F8 busy comparison requires a real post-A forward frame with blocked ACTION and a matching subsequent swap in the still-live transition.
 
 ## Acceptance and verification
 

@@ -20,6 +20,7 @@ class GameSession(
     private val lock = SynchronizedObject()
     private val posted = ArrayDeque<() -> Unit>()
     private val fields = ArrayDeque<FieldJob>()
+    private var fieldMaintenance: ((GameCalls) -> Unit)? = null
     private var open = true
     var mapOpen = false
         private set
@@ -32,6 +33,27 @@ class GameSession(
     fun post(job: () -> Unit) = synchronized(lock) { if (open) posted.addLast(job) }
     fun requestField(inBattle: Boolean, delayFrames: Int = 0, run: (GameCalls, Boolean) -> Unit) =
         synchronized(lock) { if (open) fields.addLast(FieldJob(inBattle, delayFrames, run)) }
+
+    /** Coalesce the periodic FLIGHT AREA check without reserving the game's input. */
+    fun requestFieldMaintenance(run: (GameCalls) -> Unit): Boolean = synchronized(lock) {
+        if (!open || fieldMaintenance != null) return@synchronized false
+        fieldMaintenance = run
+        true
+    }
+
+    /** This may call cartridge functions. The host supplies a live positive field observation.
+     * A pending check survives a battle or unsafe call depth, with no deadline that could force it to run. */
+    fun serviceFieldMaintenance(liveField: Boolean) {
+        if (!liveField || !onField || menuOpen || mapOpen) return
+        val job = synchronized(lock) {
+            if (fieldMaintenance == null || fields.isNotEmpty() || !callSafe()) return@synchronized null
+            fieldMaintenance.also { fieldMaintenance = null }
+        } ?: return
+        runCatching { job(calls) }.onFailure { failed("field maintenance failed", it) }
+    }
+
+    /** Only foreground field actions enter the input reservation. */
+    fun hasQueuedFieldWork(): Boolean = synchronized(lock) { fields.isNotEmpty() }
 
     /** Snapshot the batch: work posted by a callback waits until the next service pass. */
     fun servicePosted() {
@@ -85,7 +107,7 @@ class GameSession(
     }
 
     fun close() {
-        synchronized(lock) { open = false; posted.clear(); fields.clear() }
+        synchronized(lock) { open = false; posted.clear(); fields.clear(); fieldMaintenance = null }
         mapOpen = false; menuOpen = false; onField = false; fieldFrames = 0
     }
 

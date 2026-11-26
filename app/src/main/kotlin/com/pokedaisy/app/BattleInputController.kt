@@ -161,7 +161,7 @@ class BattleInputController(
             menuCursor in 0..3 && pickCell < 0
 
     /** A D-pad press ([CoreKey] bits) for the action menu's cursor, applied on the next frame ([tick]). */
-    fun steerAction(key: Int) {
+    fun steerAction(key: Int) = synchronized(lock) {
         steerKey = key
     }
 
@@ -311,6 +311,19 @@ class BattleInputController(
      */
     private fun exclusiveLocked() = queue.isNotEmpty() || framesLeft > 0 || switchTarget != null || runPresses > 0 || pickCell >= 0 ||
         gbPickCell >= 0
+
+    private fun reservesMouseLocked() = busyLocked() || steerKey != 0 || throwFns != null || holdTail > 0 || holdFrame
+
+    /** Keep even a zero-mask companion phase authoritative, including a request after tick. */
+    fun tickForMouse(): Boolean = synchronized(lock) {
+        val reserved = reservesMouseLocked()
+        tick()
+        reserved || reservesMouseLocked()
+    }
+
+    fun commitWithMouseReservation(commit: (Boolean) -> Unit) = synchronized(lock) {
+        commit(reservesMouseLocked())
+    }
 
     /** Call once per real emulated frame, before MgbaCore.pkSetKeys. */
     fun tick() {

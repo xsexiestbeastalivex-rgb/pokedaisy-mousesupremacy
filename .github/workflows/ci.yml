@@ -67,6 +67,17 @@ jobs:
       - name: Game data
         run: python3 scripts/gen_gamedata.py --check && python3 scripts/gen_nds_ports.py --check && python3 scripts/gen_area_maps.py --check
 
+      - name: Native battle input histories
+        run: |
+          set -euo pipefail
+          classes="$(mktemp -d)"
+          trap 'rm -rf "$classes"' EXIT
+          javac --release 17 -d "$classes" \
+            pointer-input/src/main/java/com/pokedaisy/mousesupremacy/pointer/*.java \
+            app/src/main/java/com/pokedaisy/app/mouse/NativeBattleMouse.java \
+            tools/mousesupremacy/NativeBattleMouseHarness.java
+          java -cp "$classes" com.pokedaisy.app.mouse.NativeBattleMouseHarness
+
       # ROM-backed tests skip here (no ROMs in CI - they run on the release runner);
       # fixtures, guards, Paparazzi renders and everything else run.
       - name: Unit tests

@@ -34,3 +34,6 @@ add_executable(pk_calls_api_test pk_calls_api_test.c)
 target_link_libraries(pk_calls_api_test PRIVATE pk_api)
 add_test(NAME pk_calls_api COMMAND pk_calls_api_test "${CMAKE_CURRENT_BINARY_DIR}")
 set_tests_properties(pk_calls_api PROPERTIES FIXTURES_REQUIRED diagnostics TIMEOUT 60)
+
+add_executable(pk_wide_cache_test pk_wide_cache_test.c)
+add_test(NAME pk_wide_cache COMMAND pk_wide_cache_test)

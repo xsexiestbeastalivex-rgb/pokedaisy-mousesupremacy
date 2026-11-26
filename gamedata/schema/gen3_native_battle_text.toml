@@ -1,0 +1,15 @@
+version = 1
+kotlin_class = 'NativeBattleTextConfig'
+kotlin_file = 'NativeBattleTextConfig.kt'
+
+[field.printers]
+kotlin = 'Long'
+type = 'long'
+
+[field.flags]
+kotlin = 'Long'
+type = 'long'
+
+[field.disabled]
+kotlin = 'Long'
+type = 'long'

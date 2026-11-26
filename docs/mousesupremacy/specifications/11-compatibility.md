@@ -22,8 +22,8 @@ Reuse the computed raw identity when it is bound to the current loaded bytes. Av
 
 ## Acceptance and tests
 
-- Exact English FireRed rev 1 resolves independently of revision 0, randomized carts, Emerald and unsupported games. Include a synthetic pair with identical header and normalized bus digest, and with differing raw RTC/GPIO bytes and whole-file digests. A missing capability or failed observation yields no game key.
-- Qualify a second retail revision and one materially different layout as a negative or explicit override case before claiming demonstrated reuse. Single-profile FireRed delivery can proceed on its own evidence. Run fixture and synthetic identity/predicate tests in CI and the recorded scenario for each newly qualified combination.
+- Exact English FireRed rev 0, FireRed rev 1 and retail Emerald resolve to separate profiles. Randomizers, unsupported builds and same-header failures must not inherit eligibility. Include a synthetic pair with identical header and normalized bus digest, and with differing raw RTC/GPIO bytes and whole-file digests. A missing capability or failed observation yields no game key.
+- Qualify both FireRed revisions and retail Emerald independently. Reuse stock behavior only where runtime evidence agrees. Bring exact owner-used Emerald hacks and Emerald Expansion profiles forward, including a materially changed layout as an override or safe rejection. Run fixture and synthetic identity/predicate tests in CI and the recorded scenario for each newly qualified combination.
 - Record identification method, exact revision, evidence, limitations and remaining work with each profile.
 
 ## Deferred and decisions

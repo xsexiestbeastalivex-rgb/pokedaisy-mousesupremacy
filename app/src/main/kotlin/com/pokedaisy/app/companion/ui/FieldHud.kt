@@ -524,6 +524,7 @@ fun FieldHud(
     onTap: () -> Unit = {},
     /** A panel opened (true) or closed: no tip comes up over one. */
     onPanel: (Boolean) -> Unit = {},
+    onPointerVisible: ((Boolean) -> Unit)? = null,
 ) {
     var panel by remember { mutableStateOf(initialPanel) }
     var summary by remember { mutableStateOf(0) }
@@ -547,7 +548,9 @@ fun FieldHud(
     val panelOpen = panel != null
     LaunchedEffect(panelOpen) { onPanel(panelOpen) }
     val alpha by animateFloatAsState(if (shown) 1f else 0f, tween(if (shown) 220 else 120), label = "field-hud")
-    if (alpha == 0f && !shown) return
+    val visible = shown || alpha != 0f
+    if (onPointerVisible != null) androidx.compose.runtime.SideEffect { onPointerVisible(visible) }
+    if (!visible) return
 
     // This map's wild Pokémon, read off the UI thread (null: no ROM tables for this game, so no WILD button).
     val live = snapshot.guideTables

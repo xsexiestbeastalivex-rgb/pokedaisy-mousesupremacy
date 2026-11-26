@@ -2,6 +2,7 @@ package com.pokedaisy.app
 
 import com.pokedaisy.app.companion.DsCore
 import com.pokedaisy.app.companion.data.AutoRunPolicy
+import com.pokedaisy.app.companion.data.BATTLE_INPUT_NONE
 import com.pokedaisy.app.companion.data.CoreKey
 import com.pokedaisy.app.companion.data.SnapshotCache
 import com.pokedaisy.app.companion.data.delete
@@ -56,6 +57,13 @@ class EmulatorEngine(
     private val preferences: Prefs,
     private val telemetry: com.pokedaisy.app.companion.TelemetryStore,
 ) {
+    internal var battleMouse: com.pokedaisy.app.mouse.NativeBattleMouse? = null
+    internal var battleInputEvidence: BattleInputEvidence? = null
+    internal var battleMouseSample: com.pokedaisy.app.mouse.NativeBattleMouse.Sample? = null
+        private set
+    internal var battleMouseWindow: WideCamera.Window? = null
+        private set
+
     private var thread: Thread? = null
     @Volatile var running = false
         private set
@@ -392,11 +400,13 @@ class EmulatorEngine(
     fun setFastForwardHeld(on: Boolean) {
         if (ffHeld == on) return
         ffHeld = on
+        battleMouse?.interrupt("fast-forward")
         announceSpeed()
     }
 
     fun toggleFastForward() {
         ffToggled = !ffToggled
+        battleMouse?.interrupt("fast-forward")
         onFastForwardToggledChanged?.invoke(ffToggled)
         announceSpeed()
     }
@@ -406,6 +416,7 @@ class EmulatorEngine(
     fun setFastForwardToggled(on: Boolean) {
         if (ffToggled == on) return
         ffToggled = on
+        battleMouse?.interrupt("fast-forward")
         onFastForwardToggledChanged?.invoke(ffToggled)
         announceSpeed()
     }
@@ -428,15 +439,20 @@ class EmulatorEngine(
 
     /** SOFT RESET: the games' own reset combo, held for a few frames (Gen 3 and Gen 1 check it every frame and go back to
      * the title screen without saving, wherever they allow it). */
-    fun softReset() { softResetFrames = SOFT_RESET_FRAMES }
+    fun softReset() {
+        softResetFrames = SOFT_RESET_FRAMES
+        battleMouse?.interrupt("reset-request")
+    }
 
     fun setRewindHeld(on: Boolean) {
         rewindHeld = on && rewindAllowed(CoopGuards.statesBlocked)
+        if (on) battleMouse?.interrupt("rewind-request")
     }
 
     fun setSlowmoHeld(on: Boolean) {
         if (slowmoHeld == on) return
         slowmoHeld = on
+        battleMouse?.interrupt("slow-motion")
         announceSpeed()
     }
 
@@ -461,6 +477,7 @@ class EmulatorEngine(
     fun setGameSpeed(speed: Float) {
         val i = SPEED_STEPS.indexOfFirst { it == speed }.takeIf { it >= 0 } ?: return
         speedIdx = i
+        battleMouse?.interrupt("game-speed")
         announceSpeed()
     }
 
@@ -878,8 +895,27 @@ class EmulatorEngine(
     fun postToEmu(job: () -> Unit) = gameSession.post(job)
 
     /** Queued field work uses the same delay, busy and safe-call policy on both platforms. */
-    fun requestFieldItemJob(inBattle: Boolean, delayFrames: Int = 0, run: (com.pokedaisy.app.companion.data.GameCalls, Boolean) -> Unit) =
-        gameSession.requestField(inBattle, delayFrames, run)
+    fun requestFieldItemJob(inBattle: Boolean, delayFrames: Int = 0, run: (com.pokedaisy.app.companion.data.GameCalls, Boolean) -> Unit) {
+        val mouse = battleMouse
+        if (mouse == null) gameSession.requestField(inBattle, delayFrames, run)
+        else synchronized(mouse) {
+            mouse.interrupt("companion-field-request")
+            val evidence = battleInputEvidence
+            evidence?.work("producer=companion-action phase=queued inBattle=$inBattle delay=$delayFrames")
+            if (evidence == null) gameSession.requestField(inBattle, delayFrames, run)
+            else gameSession.requestField(inBattle, delayFrames) { calls, busy ->
+                evidence.work("producer=companion-action phase=run busy=$busy")
+                run(calls, busy)
+            }
+        }
+    }
+
+    fun requestFlightAreaMaintenance(run: (com.pokedaisy.app.companion.data.GameCalls) -> Unit) {
+        if (gameSession.requestFieldMaintenance { calls ->
+            battleInputEvidence?.work("producer=flight-area phase=run reservation=false")
+            run(calls)
+        }) battleInputEvidence?.work("producer=flight-area phase=queued reservation=false")
+    }
 
     private val gameCalls = object : com.pokedaisy.app.companion.data.GameCalls {
         override fun call(fn: Long, a0: Int, a1: Int, a2: Int, a3: Int) = MgbaCore.pkCall(fn, a0, a1, a2, a3)
@@ -897,13 +933,22 @@ class EmulatorEngine(
     /** False while co-op blocks LOAD STATE (slot loads and UNDO LOAD; the launch's resume is never blocked). */
     fun loadAllowed(): Boolean = !CoopGuards.statesBlocked
 
-    fun requestLoadState(slot: Int) { pendingLoad = slot.coerceIn(SaveStates.SLOT_MIN, SaveStates.SLOT_MAX) }
+    fun requestLoadState(slot: Int) {
+        pendingLoad = slot.coerceIn(SaveStates.SLOT_MIN, SaveStates.SLOT_MAX)
+        battleMouse?.interrupt("load-request")
+    }
     fun requestUndoSave() { if (!CoopGuards.battleActive()) pendingUndoSave = true }   // no state of a co-op battle is ever written
-    fun requestUndoLoad() { pendingUndoLoad = true }
+    fun requestUndoLoad() {
+        pendingUndoLoad = true
+        battleMouse?.interrupt("load-request")
+    }
     /** BOSS RETRY: a state of this moment (a trainer battle's start) into [SaveStates.retryFile]; never of a co-op battle. */
     fun requestRetrySave() { if (!CoopGuards.battleActive()) pendingRetrySave = true }
     /** BOSS RETRY: back to that state ([onStateResult] with LOAD_STATE, slot -1); undoable like any load. */
-    fun requestRetryLoad() { pendingRetryLoad = true }
+    fun requestRetryLoad() {
+        pendingRetryLoad = true
+        battleMouse?.interrupt("load-request")
+    }
 
     fun cycleSlot(delta: Int) {
         val n = (currentSlot + delta).mod(SaveStates.SLOT_MAX - SaveStates.SLOT_MIN + 1)
@@ -1117,7 +1162,12 @@ class EmulatorEngine(
         runCatching { track?.setVolume(trackGain) }
         slowFrames = false
         audioFallback = false
-        val run = GameRun(sampleRate, track, trackGain)
+        val mouseReader = if (gba && battleMouse != null) NativeBattleReader.bind(rom) else null
+        if (battleMouse != null) {
+            Log.i("MsNativeBattle", "profile=${mouseReader?.profile?.name ?: "unsupported"}")
+            battleMouse?.session(mouseReader != null)
+        }
+        val run = GameRun(sampleRate, track, trackGain, mouseReader)
         try {
             while (running) {
                 if (!run.beforeFrame()) continue
@@ -1125,6 +1175,7 @@ class EmulatorEngine(
                 run.afterCore()
                 run.watchScreens()
                 run.fieldStep()
+                run.serviceFieldMaintenance()
                 run.musicStep()
                 run.pacingMode()
                 run.writeAudio()
@@ -1143,6 +1194,8 @@ class EmulatorEngine(
             pendingSuspend = null
             runCatching { track?.stop() }
             runCatching { track?.release() }
+            battleMouse?.session(false)
+            battleMouseSample = null
             run.tap.close()
             // The STEADY clip is only told when it changes, and the next loop starts with none: silence it here, or a
             // RESTART GAME (or another ROM) kept the old song playing over the new one.
@@ -1166,7 +1219,26 @@ class EmulatorEngine(
      * ("Method exceeds compiler instruction limit" in logcat every ~0.35 s). Keep each method well under that
      * (`scripts/check_dex_methods.py`); a new stage of the frame is a new method.
      */
-    private inner class GameRun(val sampleRate: Int, val track: AudioTrack?, initialGain: Float) {
+    private inner class GameRun(
+        val sampleRate: Int, val track: AudioTrack?, initialGain: Float,
+        val mouseReader: NativeBattleReader?,
+    ) {
+        private val inputEvidence = battleInputEvidence.takeIf { mouseReader != null }
+        private var inputSources: GbaInput.SourceSnapshot? = null
+        private var heldKeys = 0
+        private var tapKeys = 0
+        private var turboKeys = 0
+        private var resetKeys = 0
+        private var mixedKeys = 0
+        var mouseStamp: GbaInput.MouseInput? = null
+        var companionReserved = false
+        var upstreamKeys = 0
+        var mouseResetting = false
+        var mouseWasRewinding = false
+        var mouseFrameBefore = -1L
+        private var mouseObserverFailed = false
+        private var framePublisherFailed = false
+        var mouseWideWindow: WideCamera.Window? = null
         var trackGain = initialGain
 
         val scratch = ShortArray(4096)
@@ -1291,6 +1363,7 @@ class EmulatorEngine(
             frameStart = System.nanoTime()
             if (rewindHeld && !rewindAllowed(CoopGuards.statesBlocked)) rewindHeld = false
             if (loopAction(CoopGuards.held, !running, pendingSave >= 0) != LoopAction.RUN) {
+                battleMouse?.interrupt("no-step")
                 wasHeld = true
                 // Co-op holds the game: no frame, the last picture stays; saves, suspend, sleep and stop still served.
                 gameAudioPaused = true
@@ -1313,7 +1386,10 @@ class EmulatorEngine(
                 vsyncSettledAt = System.nanoTime() + VSYNC_SETTLE_NANOS
                 vsyncTicks.drainPermits()
             }
-            battleInput.tick()
+            companionReserved = if (mouseReader != null) battleInput.tickForMouse() else {
+                battleInput.tick()
+                false
+            }
             if (nds) ndsTaps.tick()
             // No ring while a co-op battle runs: it would fill with the other game's frames.
             val rewindWanted = if (CoopGuards.statesBlocked) 0 else rewindEntries
@@ -1355,11 +1431,38 @@ class EmulatorEngine(
                     runCatching { onWideOff?.invoke("camera") }
                 }
             }
+            // Keep the exact camera window prepared for this step. The fallback clears wideCamera.
+            mouseWideWindow = if (mouseReader != null && wideApplied != WideScreen.OFF && !probeOnly)
+                wideCamera?.current else null
             rewinding = rewindHeld && rewindWanted > 0
             MgbaCore.pkSetRewinding(rewinding)
             // TURBO A / B: pressed 2 frames, released 2, in game frames - so FF mashes faster too.
             val reset = if (softResetFrames > 0) { softResetFrames--; SOFT_RESET_KEYS } else 0
-            var keys = input.mask or reset or input.tapMask() or (if ((frame++ / 2) % 2 == 0L) input.turboMask else 0)
+            val turboPhase = (frame++ / 2) % 2 == 0L
+            fun mixInput(): Int {
+                val held = input.mask
+                val tap = input.tapMask()
+                val turbo = if (turboPhase) input.turboMask else 0
+                val mixed = held or reset or tap or turbo
+                if (inputEvidence != null) {
+                    heldKeys = held
+                    tapKeys = tap
+                    turboKeys = turbo
+                    resetKeys = reset
+                    mixedKeys = mixed
+                }
+                return mixed
+            }
+            var keys = if (mouseReader == null) mixInput() else input.sampleMouseInput {
+                mouseStamp = it
+                if (inputEvidence != null) inputSources = input.mouseSources()
+                mixInput()
+            }
+            if (mouseReader != null && (reset != 0 && !mouseResetting || rewinding && !mouseWasRewinding)) {
+                battleMouse?.session(true)
+            }
+            mouseResetting = reset != 0
+            mouseWasRewinding = rewinding
             // AUTO-RUN: B flipped while walking on the player's own field (holding it walks) - never in a script, a
             // battle, a menu screen (B leaves it) or on a bike (the Acro Bike's wheelie is B). Nor with A held: the
             // expansion's DexNav creeps on A (Seaglass & co.), but checks B's run first, so a held B scared the
@@ -1376,6 +1479,7 @@ class EmulatorEngine(
             if (coop != null) {
                 val coopKeys = coop.beforeFrame(keys)
                 if (coopKeys == null) {
+                    battleMouse?.interrupt("coop-hold")
                     // No frame this tick: nothing runs, no new audio.
                     wasHeld = true
                     gameAudioPaused = true
@@ -1393,7 +1497,8 @@ class EmulatorEngine(
             }
             // Behind DS LAYOUT's held pictures the player can't see what a key would do.
             if (dsHeld) keys = 0
-            MgbaCore.pkSetKeys(keys)
+            upstreamKeys = keys
+            if (mouseReader == null) MgbaCore.pkSetKeys(keys)
             if (nds) {
                 if (ndsScale != ndsScaleSet) {
                     MgbaCore.pkNdsSetScale(ndsScale)
@@ -1424,14 +1529,114 @@ class EmulatorEngine(
             return true
         }
 
+        private fun commitBattleMouse() {
+            val reader = mouseReader ?: return
+            val mouse = battleMouse
+            val sampled = mouseStamp
+            if (mouseObserverFailed || mouse == null || sampled == null) {
+                MgbaCore.pkSetKeys(upstreamKeys)
+                if (inputEvidence != null) {
+                    val gate = if (mouseObserverFailed) "observer-failed" else "observer-unavailable"
+                    val snapshot = inputFrame(null, upstreamKeys, false, companionReserved,
+                        gameSession.hasQueuedFieldWork(), gate)
+                    snapshot?.let { inputEvidence.frame(-1, -1, frame, it) }
+                }
+                return
+            }
+            mouseFrameBefore = reader.frame()
+            val native = reader.sample()
+            val observation = mouse.observe(mouseFrameBefore, native)
+            var evidence: BattleInputEvidence.Frame? = null
+            battleInput.commitWithMouseReservation { lateCompanion ->
+                input.withMouseInput(sampled) { rawIdle, manual ->
+                    synchronized(mouse) {
+                        val companion = companionReserved || lateCompanion
+                        val fieldAction = gameSession.hasQueuedFieldWork()
+                        val eligible = mouseFrameBefore >= 0 && running && !rewinding && !rewindHeld &&
+                            !mouseResetting && softResetFrames == 0 && !sleeping && pendingSleep == null &&
+                            pendingSuspend == null && pendingSave < 0 && !pendingRetrySave &&
+                            pendingLoad < 0 && !pendingUndoLoad && !pendingRetryLoad &&
+                            !ffHeld && !ffToggled && !slowmoHeld && effectiveSpeed() == 1f &&
+                            frameCoop == null && coopBattles == null && coopLock == null &&
+                            !CoopGuards.held && !CoopGuards.statesBlocked && !companion &&
+                            !fieldAction && !holdFrame &&
+                            battleMenuHidden == 0 && cheatText.isEmpty()
+                        // If auto-run's current field policy could touch this mask, let only upstream drive.
+                        val untouched = !(autoRun && AutoRunPolicy.walking(CoreKey.UP, fieldState, fieldScreen))
+                        if (!eligible || !untouched) mouse.interrupt("upstream-gate")
+                        if (inputEvidence == null) {
+                            mouse.commit(mouseFrameBefore, upstreamKeys, eligible && untouched && rawIdle,
+                                eligible && untouched && manual, MgbaCore::pkSetKeys)
+                        } else {
+                            mouse.commit(mouseFrameBefore, upstreamKeys, eligible && untouched && rawIdle,
+                                eligible && untouched && manual) { final ->
+                                MgbaCore.pkSetKeys(final)
+                                evidence = inputFrame(native, final, rawIdle, companion, fieldAction,
+                                    when {
+                                        !eligible -> "upstream-gate"
+                                        !untouched -> "field-policy"
+                                        !rawIdle -> "raw-input"
+                                        else -> "open"
+                                    })
+                            }
+                        }
+                    }
+                }
+            }
+            evidence?.let { inputEvidence?.frame(observation?.session() ?: -1L, mouseFrameBefore, frame, it) }
+        }
+
+        private fun inputFrame(
+            native: com.pokedaisy.app.mouse.NativeBattleMouse.Native?, committed: Int, rawIdle: Boolean,
+            companion: Boolean, fieldAction: Boolean, gate: String,
+        ): BattleInputEvidence.Frame? {
+            val sources = inputSources ?: return null
+            return BattleInputEvidence.Frame(sources, heldKeys, tapKeys, turboKeys, resetKeys, mixedKeys,
+                upstreamKeys, committed, rawIdle, companion, fieldAction, gate,
+                native?.visible()?.name.orEmpty(), native?.ready()?.name.orEmpty(), native?.cursor() ?: -1)
+        }
+
+        /** Fresh field flags come from this completed frame, after pending state and field jobs have run. */
+        fun serviceFieldMaintenance() {
+            val field = fieldState
+            val blocked = MgbaCore.FIELD_BATTLE or MgbaCore.FIELD_LOCKED or
+                MgbaCore.FIELD_WINDOW or MgbaCore.FIELD_TEXT
+            gameSession.serviceFieldMaintenance(gba && running && !rewinding && !holdFrame &&
+                !CoopGuards.statesBlocked && battleInput.gameState == BATTLE_INPUT_NONE &&
+                fieldScreen && (wideScene == -1 || wideScene == WideCamera.SCENE_FIELD) &&
+                field and MgbaCore.FIELD_KNOWN != 0 && field and blocked == 0)
+        }
+
+        private fun sampleCompletedBattleFrame() {
+            val reader = mouseReader ?: return
+            battleMouseSample = null
+            battleMouseWindow = mouseWideWindow
+            if (mouseObserverFailed || rewinding || mouseResetting) return
+            try {
+                battleMouseSample = battleMouse?.applied(mouseFrameBefore, reader.frame(), reader.sample())
+            } catch (failure: Exception) {
+                mouseObserverFailed = true
+                battleMouse?.session(false)
+                Log.e("pokedaisy", "battle frame observation failed", failure)
+            }
+        }
+
         /** The core's frame and what reads its state right after it. */
         fun runCore() {
+            commitBattleMouse()
             val coreStart = System.nanoTime()
             MgbaCore.pkRunFrame()
             val coreEnd = System.nanoTime()
+            sampleCompletedBattleFrame()
             // Before the frame is shown: the frame a menu transition starts fading on is never seen.
             if (nds) stepDsHold()
-            onFrame?.invoke()
+            try {
+                onFrame?.invoke()
+            } catch (failure: Exception) {
+                if (!framePublisherFailed) Log.e("pokedaisy", "frame publication callback failed", failure)
+                framePublisherFailed = true
+                battleMouse?.show(null)
+            }
             frameCoop?.afterFrame()
             framesRun++
             ticksSinceFrame = 0
@@ -2230,6 +2435,8 @@ class EmulatorEngine(
 
     /** Loads [source] and puts achievement progress back to where that state had it. */
     private fun loadState(source: File): Boolean {
+        battleMouse?.resetState()
+        battleMouseSample = null
         val ok = MgbaCore.pkLoadState(source.absolutePath)
         if (ok) RetroAchievements.afterLoadState(source)
         // A state made in another PLAYER LOOK holds that look's palettes.

@@ -49,7 +49,7 @@ jobs:
         with:
           validate-wrappers: false
 
-      - name: Build the isolated app with x86_64 and arm64
+      - name: Verify focused controller and battle tests
         env:
           EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
@@ -57,8 +57,41 @@ jobs:
           test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_SHA"
           mkdir -p app/src/dev/assets
           printf '%s\n' "$EXPECTED_SOURCE_SHA" > app/src/dev/assets/source-commit.txt
-          ./gradlew :app:testDevUnitTest --tests '*ControllerTriggersTest' :app:assembleDev \
+          classes="$(mktemp -d)"
+          trap 'rm -rf "$classes"' EXIT
+          javac --release 17 -d "$classes" \
+            pointer-input/src/main/java/com/pokedaisy/mousesupremacy/pointer/*.java \
+            app/src/main/java/com/pokedaisy/app/mouse/NativeBattleMouse.java \
+            tools/mousesupremacy/NativeBattleMouseHarness.java
+          java -cp "$classes" com.pokedaisy.app.mouse.NativeBattleMouseHarness
+          ./gradlew :app:testDevUnitTest --tests '*ControllerTriggersTest' --tests '*ControllerLifecycleTest' \
+            --tests '*NativeBattleReaderTest' --tests '*HotkeyHoldBackTest' --tests '*HotkeyDsTriggersTest' --tests '*KeyCaptureTest' \
+            --tests '*PerformanceGuardsTest' --tests '*BattleInputEvidenceTest' --tests '*BattleHudPointerTest' \
+            --tests '*WideCameraTest' :shared:testDebugUnitTest --tests '*GameSessionTest' \
             -Pquick -Ppokedaisy.x86_64=true --stacktrace
+
+      - name: Report focused test failures
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from xml.etree import ElementTree
+
+          rows = []
+          for module in ("app", "shared"):
+              for path in sorted(Path(module, "build", "test-results").glob("*/TEST-*.xml")):
+                  for case in ElementTree.parse(path).findall("testcase"):
+                      failure = case.find("failure")
+                      if failure is not None:
+                          rows.append((case.get("classname", ""), case.get("name", ""),
+                                       failure.get("message", "").splitlines()))
+          for classname, name, detail in rows[:12]:
+              message = f"{classname}.{name} {detail[0] if detail else ''}"
+              print("::error title=Focused test failed::" + message.replace("%", "%25"))
+          PY
+
+      - name: Build the isolated app with x86_64 and arm64
+        run: ./gradlew :app:assembleDev -Pquick -Ppokedaisy.x86_64=true --stacktrace
 
       - name: Verify package, native libraries and debug signature
         env:

@@ -56,7 +56,8 @@ import kotlin.math.roundToInt
 class TouchInputWindows(private val anchor: View, private val tracker: TouchPressTracker) {
     private val thread = HandlerThread("pokedaisy-touch", Process.THREAD_PRIORITY_URGENT_DISPLAY).apply { start() }
     private val handler = Handler(thread.looper)
-    @Volatile internal var onPointerCallback: ((Int, Long) -> Unit)? = null
+    @Volatile internal var onPointerCallback: ((Int, Long, Int, Int) -> Unit)? = null
+    @Volatile internal var onPointerMask: ((Long, Int, Int, Int, Int) -> Unit)? = null
     @Volatile internal var pointerContactHeld = false
         private set
     // Window-manager ownership follows the anchor's display, not the Activity that originally made it (SWAP).
@@ -102,7 +103,7 @@ class TouchInputWindows(private val anchor: View, private val tracker: TouchPres
         override fun onTouchEvent(e: MotionEvent): Boolean {
             n = 0
             val action = e.actionMasked
-            onPointerCallback?.invoke(action, e.eventTime)
+            onPointerCallback?.invoke(action, e.eventTime, e.source, e.buttonState)
             // Debug builds: how long a press waited before it reached us (the UI thread's waits shouldn't show here).
             if (BuildConfig.DEBUG && (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN)) {
                 Log.d("pokedaisy/touch", "press after ${android.os.SystemClock.uptimeMillis() - e.eventTime} ms")
@@ -116,7 +117,10 @@ class TouchInputWindows(private val anchor: View, private val tracker: TouchPres
                     n++
                 }
             }
-            fingersChanged()
+            val trace = onPointerMask
+            if (action == MotionEvent.ACTION_MOVE && trace != null) {
+                fingersChanged { keys, turbo -> trace(e.eventTime, e.source, e.buttonState, keys, turbo) }
+            } else fingersChanged()
             return true
         }
     }
@@ -238,13 +242,13 @@ class TouchInputWindows(private val anchor: View, private val tracker: TouchPres
     }
 
     /** A pad's fingers changed: every window's fingers through the hit test, into [tracker]. */
-    private fun fingersChanged() {
+    private fun fingersChanged(published: ((Int, Int) -> Unit)? = null) {
         val m = model ?: return
         if (!on) return
         var n = 0
         for (pad in pads) for (i in 0 until pad.n) if (n < MAX_FINGERS) { xs[n] = pad.fx[i]; ys[n] = pad.fy[i]; n++ }
         if (onPointerCallback != null) pointerContactHeld = n > 0
-        tracker.update(TouchPressTracker.SOURCE_WINDOWS, touchHits(m, xs, ys, n))
+        tracker.update(TouchPressTracker.SOURCE_WINDOWS, touchHits(m, xs, ys, n), published)
     }
 
     companion object {

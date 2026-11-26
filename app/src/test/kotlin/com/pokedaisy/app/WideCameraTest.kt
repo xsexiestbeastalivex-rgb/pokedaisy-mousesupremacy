@@ -25,6 +25,32 @@ class WideCameraTest {
         assertArrayEquals(floatArrayOf(6.75f, 5f, 4f, 3f), WideCamera.levelsFor(1920, 1080), 0.001f)
     }
 
+    @Test fun aWideWindowKeepsItsNativeExtentAndFitsAgainAfterResize() {
+        // Representative docked view bounds from the two WSA cases, where the widest scale is 2.
+        for (width in listOf(1536, 1568)) {
+            val camera = WideCamera().apply {
+                viewW = width
+                viewH = 1411
+                level = Int.MAX_VALUE  // Stale saved step after a viewport change.
+            }
+            assertEquals(2f, camera.levels().last(), 0.001f)
+            val wide = camera.run(1.5f)
+            assertEquals(2f, wide.scale, 0.001f)
+            assertEquals(width / 2, wide.w)
+            assertTrue(wide.h in 706..707)
+
+            camera.viewW = 960
+            camera.viewH = 760
+            val smaller = camera.run(1.5f, start = 2_000_000_000L)
+            assertEquals(2f, smaller.scale, 0.001f)
+            assertEquals(480, smaller.w)
+            assertEquals(380, smaller.h)
+            val battle = camera.run(1f, scene = WideCamera.SCENE_OFF, start = 4_000_000_000L)
+            assertEquals(4f, battle.scale, 0.001f)
+            assertEquals(240, battle.w)
+        }
+    }
+
     @Test fun aGameBoyGameZoomsInItsOwnPixels() {
         // Yellow's 160x144 at the Thor's 1080 rows: 7.5 at 1x, then 6 / 5 / 4 / 3 (7 shows too little more; 2 is wider
         // than pk_wide's window).
