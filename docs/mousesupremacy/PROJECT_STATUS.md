@@ -1,5 +1,17 @@
 # Initialization report and project status
 
+## Emerald integration candidate
+
+The owner authorized the immediate-click correction and one history-preserving update of existing PR #4 after focused tests, internal review and an isolated WSA recheck. The [bounded integration record](test-scenarios/emerald-battle-completion.md) records the click-latch contract, earlier review dispositions and evidence limits. Immediate click admission now retains the original target and same-menu directional acknowledgement until the selected cursor is displayed and released, then confirms once. Context, owner and lifecycle cancellation remain mandatory. Exact runtime source/APK and hosted integration status are reported on PR #4; no broader milestone, merge or release is authorized.
+
+## Bounded Emerald local runtime completion, 2026-11-25
+
+Imported preserved checkpoint `7f78a69f9bc41661b96b424bdf806cbb1b40d960` into the warmed lane. Tested local, unpushed source `666976b3a0fb210cbfacfabadf3f0fc278c6eb77` adds the narrow unsigned-local signing path and a transactional joystick source-guard correction. Focused checks passed (56 Android plus 7 shared tests); the native harness passed 156 lease histories and named move/message models. No clean, toolchain reinstall, hosted build or push was used.
+
+The locally compiled APK (`com.pokedaisy.app.dev`, versionCode 26) has SHA-256 `fa36ccef8b3e9194d007cee6d27356962e16638b80c4364da14c37b1af0aa369`, signed by retained certificate `ca80654fdd707f7a41d5980970b0736202a45c6fd2289e1b9968957de4436177`. Installed bytes matched; 362 non-signature entries matched the unsigned input. Actual WSA frontend/core evidence completed one ordinary retail Emerald Route 101 battle: native mouse selected Ember against wild Poochyena, Ember PP fell 25 to 24 while Scratch stayed 35, two fresh clicks advanced genuine fainted/EXP waits, and the game returned to the overworld. Input was injected Windows mouse, not owner-operated physical input. F8 readiness, cross-owner drag cancellation, companion Cancel provenance and fresh native recovery were observed.
+
+A click during unsettled hover steering was rejected; settling hover before the fresh click succeeded. Broader display/menu/controller qualification and independent integration acceptance remain unclaimed. Private evidence and exact provenance are retained in the local `MouseSupremacy-WSA-NativeBattle-local/emerald-completion` evidence directory. Original save-state identity and scoped settings were restored, trace markers removed, and existing official/dev data checks passed. The assigned observable result is complete; local work stopped without merge or release.
+
 ## Headquarters III: local continuation, 2026-11-25
 
 The owner assigned continuous implementation, incremental compilation and WSA debugging to the existing local Codex session. Headquarters III retains technical direction and milestone assessment. [Local experimental APKs](DEVELOPMENT.md#local-experimental-apks) supersede CI-only prerequisites for authorized experiments; accepted artifacts, independent acceptance and owner merge/release approval remain integration gates. Reuse the [qualified lane](https://github.com/xsexiestbeastalivex-rgb/pokedaisy-mousesupremacy/issues/5#issuecomment-7180330080), signer and fixtures.

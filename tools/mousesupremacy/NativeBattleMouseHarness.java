@@ -20,7 +20,7 @@ public final class NativeBattleMouseHarness {
         Menu transition;
         Sample completed;
         int waitBusy;
-        final int[] pp = {35, 25, 15};
+        final int[] pp = {35, 25, 15, 20};
         int selectedMove = -1, messages = 2;
         long page = 1;
         boolean rejectMove;
@@ -496,6 +496,7 @@ public final class NativeBattleMouseHarness {
     }
 
     public static void main(String[] args) {
+        immediateMoveClickHistories();
         int histories = stalePresentedHistories() + probeSwapHistories();
         transitionDoesNotInheritHover();
         System.out.println("Lease histories passed: " + histories + "; both menu transitions require fresh motion");
@@ -509,6 +510,76 @@ public final class NativeBattleMouseHarness {
         afterCommitCancellation();
         moveAndMessageCompletion();
         System.out.println("Native battle fake core: two widths, nine interruptions, unqualified/no-step cases, bounded reference and throwing trace passed");
+    }
+
+    private static void immediateMoveClickHistories() {
+        int histories = 0;
+        for (int phase : new int[]{1, 0, 2, 3}) {
+          for (int chosen : new int[]{2, 3}) {
+            for (String veto : List.of("none", "owner", "manual", "reservation", "layout", "session",
+                    "context", "page", "withdrawn", "expired", "crossing")) {
+                Core core = new Core();
+                core.reference();
+                core.click(1, 135, 128);
+                core.run(8);
+                core.slots = 4;
+                core.run(2);
+                core.masks.clear();
+                int x = chosen == 2 ? 20 : 97;
+                int initialPp = core.pp[chosen];
+                core.hover(x, 143); // Both one-direction and diagonal targets.
+                if (phase == 1) core.suppressDraw = true;
+                if (phase > 0) core.run(1); // Applied steering: old image, unsettled image, or settled image.
+                if (phase == 3) core.run(2);
+                core.down(1, x, 143);
+                core.hover(x + 1, 144); // Same-cell motion during a held click cannot retire its latch.
+                core.up(x, 143);
+                core.hover(x + 1, 144); // Nor can duplicate motion after its matching release.
+                int clickedAt = core.masks.size();
+                switch (veto) {
+                    case "none" -> { }
+                    case "owner" -> core.mouse.interrupt("companion-or-focus");
+                    case "manual" -> core.step(LEFT, false);
+                    case "reservation" -> core.step(0, false);
+                    case "layout" -> core.resize();
+                    case "session" -> core.mouse.resetState();
+                    case "context" -> { core.busy = true; core.run(1); core.busy = false; }
+                    case "page" -> { core.page++; core.menu = Menu.MESSAGE; core.run(1); }
+                    case "withdrawn" -> core.mouse.show(null);
+                    case "expired" -> { core.frame += 8; core.mouse.observe(core.frame, core.nativeState()); }
+                    case "crossing" -> core.hover(20, 127);
+                    default -> throw new AssertionError(veto);
+                }
+                if (phase == 1 && veto.equals("none")) {
+                    core.run(3);
+                    check(!core.nonzero().contains(A), "old picture cannot acknowledge steering");
+                }
+                core.suppressDraw = false;
+                core.run(12);
+                if (veto.equals("none")) {
+                    check(core.selectedMove == chosen && core.pp[chosen] == initialPp - 1 && core.pp[0] == 35,
+                            "immediate click reaches one intended move phase=" + phase + " " + core.trace);
+                    check(core.nonzero().stream().filter(mask -> mask == A).count() == 1,
+                            "exactly one confirmation phase=" + phase);
+                    int directionAt = core.masks.indexOf(DOWN), confirmAt = core.masks.indexOf(A);
+                    check(directionAt >= 0 && confirmAt > directionAt + 1 && confirmAt >= clickedAt &&
+                                    core.masks.subList(directionAt + 1, confirmAt).contains(0),
+                            "applied release gap before clicked confirmation");
+                } else {
+                    check(!core.nonzero().contains(A) && core.pp[chosen] == initialPp && core.pp[0] == 35,
+                            "interrupted click never confirms " + phase + "/" + veto);
+                    core.menu = Menu.MOVE; core.busy = false; core.cursor = 0;
+                    if (veto.equals("session")) { core.menu = Menu.ACTION; core.reference(); core.menu = Menu.MOVE; }
+                    core.run(2); core.masks.clear();
+                    core.click(1, x, 143); core.run(12);
+                    check(core.selectedMove == chosen && core.pp[chosen] == initialPp - 1 && core.nonzero().stream().filter(m -> m == A).count() == 1,
+                            "fresh recovery " + phase + "/" + veto);
+                }
+                histories++;
+            }
+          }
+        }
+        System.out.println("Immediate move-click histories passed: " + histories);
     }
 
     private static void moveAndMessageCompletion() {

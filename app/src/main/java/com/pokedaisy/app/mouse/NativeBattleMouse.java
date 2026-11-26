@@ -220,18 +220,25 @@ public final class NativeBattleMouse {
         if (probeArm != null || (reference != null && reference.probe && reference.busy < 0)) {
             retireReference("reference-pointer");
         }
-        if (press != null && !press.target.equals(target(x, y, transform, press.action, false))) press = null;
-        if (intent != null && !intent.target.equals(target(x, y, transform, intent.action, false))) intent = null;
+        if (press != null && !press.target.equals(target(x, y, transform, press.action, true))) press = null;
+        if (intent != null && !intent.target.equals(target(x, y, transform, intent.action, true))) intent = null;
         Target target = target(x, y, transform, HOVER, false);
         hover = qualified() && target != null ? new Intent(0, HOVER, target, time) : null;
     }
 
     public synchronized void down(long gesture, int button, float x, float y, long transform, long time) {
-        invalidate("new-press");
         int action = button == 1 ? (current != null && current.nativeState.ready == Menu.MESSAGE ? ADVANCE : CONFIRM)
                 : button == 2 ? BACK : -1;
-        if (action < 0) return;
-        Target target = target(x, y, transform, action, true);
+        Target target = action < 0 ? null : target(x, y, transform, action, true);
+        // A click may arrive between a hover direction's applied frame and its settled swap.
+        // Keep that pulse as an acknowledgement/release fence, not as a second click's intent.
+        boolean steering = target != null && pulse != null && pulse.expectedCursor >= 0 &&
+                pulse.intent.target.lease.equals(target.lease);
+        if (steering) {
+            press = null;
+            intent = null;
+            hover = null;
+        } else invalidate("new-press");
         if (target != null && qualified() && current.context != confirmedContext) {
             press = new Press(gesture, action, target);
             note("press gesture=" + gesture + " frame=" + current.frame + " timeNs=" + time);
@@ -422,8 +429,19 @@ public final class NativeBattleMouse {
         }
     }
 
-    private Target target(float x, float y, long transform, int action, boolean requireCursor) {
-        if (!readyPicture(requireCursor) || picture.transform != transform || !Float.isFinite(x) ||
+    private boolean targetPicture(boolean click) {
+        if (readyPicture(false)) return true;
+        // Only our own same-menu directional pulse can explain an unsettled cursor picture.
+        // Capturing a target here grants no confirmation authority; nextMask still needs the
+        // applied neutral frame, settled matching cursor and current presentation before A.
+        return click && current != null && pulse != null && pulse.expectedCursor >= 0 &&
+                pulse.intent.target.lease.equals(menuLease()) && pictureCurrent() &&
+                picture.sample.context == current.context && current.nativeState.ready != null &&
+                picture.sample.nativeState.ready == current.nativeState.ready;
+    }
+
+    private Target target(float x, float y, long transform, int action, boolean click) {
+        if (!targetPicture(click) || picture.transform != transform || !Float.isFinite(x) ||
                 !Float.isFinite(y)) return null;
         Menu menu = current.nativeState.ready;
         if (menu == Menu.MESSAGE) {
