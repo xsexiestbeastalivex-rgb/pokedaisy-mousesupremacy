@@ -12,6 +12,10 @@ Use the [engineering lifecycle](../../../docs/mousesupremacy/DEVELOPMENT.md#engi
 3. Audit the related failure class after a material defect. Apply [repeated-defect escalation](../../../docs/mousesupremacy/DEVELOPMENT.md#repeated-defect-escalation) at the second material defect. For substantial work use a separate internal adversarial reviewer when available. Otherwise run and disclose a structured self-review. Correct material findings, rerun relevant tests and repeat review.
 4. Record exact commands, implementation SHA and build identity, expected and actual outcomes, evidence layer, counts and limitations. For generated cases record bounds or seed and runtime. For runtime evidence retain the frame or generation, target, emitted edges and observed result. Use aligned imagery for visual claims. Keep private ROMs, saves and full traces outside Git.
 
+## Source-first review and integration gate
+
+Read the [feedback-loop reform](../../../docs/mousesupremacy/FEEDBACK_LOOP.md). Before independent source review, run focused actual-component tests and internal adversarial review; separate source readiness from APK/physical acceptance. After source review, package one exact candidate and verify the artifact. Early exploratory builds are explicitly scoped. Classify unrelated defects for deferral and use the churn checkpoint rather than blind retries.
+
 ## Pre-submission checklist
 
 - [ ] Scope, specifications and acceptance criteria are satisfied. Relevant invariants and material failure modes are documented.

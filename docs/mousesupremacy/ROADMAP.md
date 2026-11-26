@@ -17,6 +17,10 @@ Numbers refer to the [system specifications](specifications/README.md). Build an
 
 Platform proof (01), identity policy (11), test harness (13) and initial read-only observation (03) can proceed independently. Geometry (04) can start with synthetic tests in parallel. Ownership (02) combines platform, geometry and host layering (12). Semantic hit testing (05) combines geometry, observation and compatibility. Battle (06), menus (07) and dialogue (08) reuse those foundations. Navigation (09) adds map projection and traversal. NPCs (10) additionally depend on navigation, entity observation and dialogue. Feedback (12) supplies occlusion early and adds visual presentation as targets become available.
 
+## Delivery sequencing
+
+Follow the [owner-approved feedback-loop reform](FEEDBACK_LOOP.md) before the next major increment. Complete the existing PR #4 correction and targeted physical check; then deliver individually playable increments with an early core-flow proof and explicitly bounded later compatibility work. Local incremental Android build qualification is a workflow prerequisite, not a new product feature or a reason to repeat completed platform setup. Preserve the approved product priorities and engine compatibility requirements.
+
 ## First battle slice
 
 Use one exact English FireRed rev 1 ordinary single wild encounter [scenario](test-scenarios/firered-battle.md). Hover each of FIGHT, BAG, POKéMON and RUN without confirming. Click FIGHT and hover occupied move slots so PP and type follow the native cursor. Right-click back where the original game accepts B. Verify one move confirm from a separate start state and four action-entry outcomes on separate resets. BAG and POKéMON are limited to their entry transitions. RUN requires a disposable encounter, with the ROM deciding the result. Include rapid changes, outside clicks, transitions and docked/unlocked companion routing.

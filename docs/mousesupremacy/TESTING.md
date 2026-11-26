@@ -12,6 +12,10 @@ Use the smallest evidence layer that exercises the requirement. Record app SHA, 
 | Regression | Compare Mouse Mode off behavior against the matched baseline. Cover keyboard, controller, DS touch, HUD, companion resize, original menus, zoom and expansion per claimed scope. |
 | User acceptance | Use only for host- or hardware-specific evidence if no agent session can access it. Use compact scripted steps with expected outcomes and exact evidence requests. |
 
+## Early integration and local feedback
+
+Apply the [feedback-loop policy](FEEDBACK_LOOP.md). For stateful changes, test the production input bridge, ownership, queue and final mask together, with representative readiness and presentation observations, before relying on model success. Capture a minimal positive and competing-input case early; use a local incremental lane once qualified. Keep experimental, headless, injected, physical and final acceptance evidence distinct.
+
 ## Risk-based verification
 
 Choose methods based on statefulness, complexity, consequence, regression risk and feasibility. Each test should be able to falsify a stated claim. An ordinary localized change can use focused unit and regression tests. Stateful arbitration needs checks throughout a bounded history, including interruption and later recovery.

@@ -1,5 +1,9 @@
 # Development and integration
 
+## Feedback-loop reform
+
+The [owner-approved feedback-loop policy](FEEDBACK_LOOP.md) governs new work and supersedes conflicting sequencing guidance below. Qualify the reusable local Android lane before the next major gameplay increment. Source review may precede artifact creation; exact artifact and physical proof remain required where applicable. Do not interrupt an already running build solely to change this process.
+
 ## Development environments
 
 The published Codex Cloud configuration described in the brief has Gradle 8.10.2, Temurin 21 and a prewarmed Compose Desktop build. Use that environment for companion UI when available. The selected Linux Work checkout is a separate environment. Its verified or blocked runs are in [project status](PROJECT_STATUS.md). Use Android SDK or GitHub Actions for native APK compilation. Use a physical WSA session for the target pointer proof.

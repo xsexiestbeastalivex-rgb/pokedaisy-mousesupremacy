@@ -15,4 +15,6 @@ Start with [project status](docs/mousesupremacy/PROJECT_STATUS.md), [requirement
 - Independent acceptance may proceed with external checks explicitly pending. Record physical proof separately. Applicable required checks must pass before merge unless the owner authorizes a documented exception. Diagnose failed or cancelled jobs before retrying. Reuse source-equivalent build evidence when the branch rules allow.
 - Complete the [pre-submission gate](.agents/skills/verify-mousesupremacy/SKILL.md) before requesting independent acceptance. Record exact source and build, evidence level, limitations and next milestone in the project documents. Report only verification that ran. Use the [engineering lifecycle](docs/mousesupremacy/DEVELOPMENT.md#engineering-lifecycle) to resolve routine work without involving the owner.
 
+- Follow the owner-approved [development feedback-loop reform](docs/mousesupremacy/FEEDBACK_LOOP.md): small playable increments, early real integration checks, source-first independent review before acceptance packaging where practicable, bounded scope and qualified local incremental builds. Preserve all acceptance gates.
+
 The [project index](docs/mousesupremacy/README.md) explains document ownership and the approval workflow.
